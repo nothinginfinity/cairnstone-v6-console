@@ -27,6 +27,8 @@
       <button class="tab" data-panel="evidence" type="button">Evidence</button>
       <button class="tab" data-panel="inbox" type="button">Inbox</button>
       <button class="tab" data-panel="handoff" type="button">Handoff</button>
+      <button class="tab" data-panel="activity" type="button">Activity</button>
+      <button class="tab" data-panel="stones" type="button">Stones</button>
     </nav>
     <main>
       <section id="panel-chat" class="panel active">
@@ -76,6 +78,35 @@
           <fieldset><legend>External GitHub inbox mirror <small>(optional transport only)</small></legend><p class="muted small">Writes one inspectable JSON mirror per recipient. The immutable AC1 message stone remains authority; mirror failure does not roll back the handoff.</p><div class="two-col"><label><span>Owner</span><input id="mirrorOwner" placeholder="nothinginfinity"></label><label><span>Repo</span><input id="mirrorRepo" placeholder="cairnstone-v6-console"></label></div><div class="two-col"><label><span>Branch <small>(default: main)</small></span><input id="mirrorBranch" placeholder="main"></label><label><span>Path prefix <small>(default: cairnstone-inbox)</small></span><input id="mirrorPrefix" placeholder="cairnstone-inbox"></label></div></fieldset>
           <button id="handoffButton" class="primary" type="button">Dispatch handoff</button>
           <pre id="handoffResult" class="code-block wrap">No handoff sent yet.</pre>
+        </div>
+      </section>
+      <section id="panel-activity" class="panel">
+        <div class="card">
+          <div class="section-heading"><div><div class="eyebrow">Combined AC1 view</div><h2>Recent activity</h2></div><button id="activityRefresh" class="secondary" type="button">Refresh</button></div>
+          <label><span>Actor IDs <small>(comma-separated; each inbox is queried independently)</small></span><input id="activityActors" placeholder="console:jared, claude:cairnstone-v6"></label>
+          <div class="two-col compact">
+            <label><span>Filter</span><select id="activityFilter"><option value="all">All</option><option value="handoff">Handoffs only</option><option value="message">Messages/other</option></select></label>
+            <label class="check-row"><input id="activityGroupThreads" type="checkbox" checked><span>Group by thread</span></label>
+          </div>
+          <div id="activityList" class="message-list"><p class="muted">Refresh to load recent activity across the actor IDs above.</p></div>
+        </div>
+      </section>
+      <section id="panel-stones" class="panel">
+        <div class="card">
+          <div class="section-heading"><div><div class="eyebrow">Stone browser</div><h2>Stones</h2></div><button id="stonesRefresh" class="secondary" type="button">Refresh</button></div>
+          <div class="two-col">
+            <label><span>Chain</span><input id="stonesChain" placeholder="cairnstone-v6-project-memory"></label>
+            <label><span>Search <small>(optional)</small></span><input id="stonesQuery" placeholder="filter by title/path"></label>
+          </div>
+          <div id="stonesHead" class="chips"></div>
+          <div id="stonesList" class="message-list"><p class="muted">Refresh to list stones for the chain above.</p></div>
+        </div>
+        <div class="card">
+          <div class="eyebrow">Stone detail</div>
+          <h2 id="stoneDetailTitle">No stone selected</h2>
+          <div id="stoneDetailMeta" class="chips"></div>
+          <details open><summary>LOD5 / LOD4 summary</summary><pre id="stoneDetailSummary" class="code-block wrap">Select a stone to see its summary.</pre></details>
+          <button id="copyStoneHash" class="secondary" type="button" disabled>Copy hash</button>
         </div>
       </section>
     </main>
