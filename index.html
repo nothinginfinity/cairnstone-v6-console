@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#101319">
+  <title>CairnStone V7 Console</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div><div class="eyebrow">CairnStone V7</div><h1>Console</h1></div>
+      <button id="healthButton" class="status-pill" type="button"><span id="healthDot" class="dot"></span><span id="healthText">Checking…</span></button>
+    </header>
+    <section class="runtime-card card">
+      <label><span>Runtime MCP</span><input id="runtimeUrl" autocomplete="url"></label>
+      <div class="two-col">
+        <label><span>Actor ID</span><input id="actorId" value="console:jared" autocomplete="off"></label>
+        <label><span>Chain</span><input id="chainId" value="cairnstone-v6-project-memory" autocomplete="off"></label>
+      </div>
+      <p class="muted small">Console actions never grant delegated execution or mutation authority.</p>
+    </section>
+    <nav class="tabs">
+      <button class="tab active" data-panel="chat" type="button">Chat</button>
+      <button class="tab" data-panel="evidence" type="button">Evidence</button>
+      <button class="tab" data-panel="inbox" type="button">Inbox</button>
+      <button class="tab" data-panel="handoff" type="button">Handoff</button>
+    </nav>
+    <main>
+      <section id="panel-chat" class="panel active">
+        <div class="card">
+          <div class="section-heading"><div><div class="eyebrow">Read-only delegation</div><h2>Ask the runtime</h2></div><button id="refreshModels" class="secondary" type="button">Models</button></div>
+          <div class="two-col"><label><span>Provider</span><select id="providerSelect"></select></label><label><span>Model</span><select id="modelSelect"></select></label></div>
+          <label id="credentialAliasWrap" class="hidden"><span>Credential alias</span><input id="credentialAlias" value="default" autocomplete="off"></label>
+          <label><span>Task</span><textarea id="taskInput" rows="7" maxlength="4000" placeholder="Ask for a bounded diagnosis, review, summary, or investigation grounded in accepted CairnStone state."></textarea></label>
+          <div class="two-col compact"><label><span>Output tokens</span><input id="outputTokens" type="number" min="1" max="2048" value="800"></label><label><span>Temperature</span><input id="temperature" type="number" min="0" max="2" step="0.1" value="0.2"></label></div>
+          <label class="check-row"><input id="includeInbox" type="checkbox" checked><span>Include non-mutating AC1 inbox snapshot in server-side context</span></label>
+          <button id="delegateButton" class="primary" type="button">Delegate read-only task</button>
+        </div>
+        <div class="card result-card">
+          <div class="section-heading"><div><div class="eyebrow">Delegated result</div><h2 id="resultTitle">No result yet</h2></div><button id="copyResult" class="secondary" type="button" disabled>Copy</button></div>
+          <div id="resultMeta" class="chips"></div>
+          <div id="resultText" class="prose muted">Run a delegated task to see the compact response here.</div>
+        </div>
+      </section>
+      <section id="panel-evidence" class="panel">
+        <div class="card">
+          <div class="section-heading"><div><div class="eyebrow">Independent inspection</div><h2>Evidence</h2></div><button id="copyEvidence" class="secondary" type="button" disabled>Copy JSON</button></div>
+          <div id="authoritySummary" class="evidence-grid"></div>
+          <details open><summary>Accepted path HEADs</summary><div id="pathHeads" class="list"></div></details>
+          <details><summary>Selected skills</summary><div id="skillsList" class="list"></div></details>
+          <details><summary>Memory refs</summary><div id="memoryRefs" class="list"></div></details>
+          <details><summary>Observability</summary><pre id="observability" class="code-block">{}</pre></details>
+        </div>
+      </section>
+      <section id="panel-inbox" class="panel">
+        <div class="card">
+          <div class="section-heading"><div><div class="eyebrow">Native AC1</div><h2>Inbox</h2></div><button id="refreshInbox" class="secondary" type="button">Refresh</button></div>
+          <label><span>Recipient actor</span><input id="inboxActor" value="console:jared" autocomplete="off"></label>
+          <div id="inboxList" class="message-list"><p class="muted">Refresh to load correspondence.</p></div>
+        </div>
+        <div class="card"><div class="eyebrow">Message reader</div><h2 id="messageTitle">No message selected</h2><div id="messageMeta" class="chips"></div><pre id="messageContent" class="code-block wrap">Select a message to read it. Reading mutates delivery state only; the message stone remains immutable.</pre></div>
+      </section>
+      <section id="panel-handoff" class="panel">
+        <div class="card">
+          <div class="eyebrow">Structured AC1 dispatch</div><h2>Send handoff</h2>
+          <p class="muted small">Creates immutable correspondence. It transports intent and provenance but grants no execution, mutation, or accepted-state authority.</p>
+          <label><span>Recipients <small>(comma-separated actor IDs)</small></span><input id="handoffTo" placeholder="claude:cairnstone-v6"></label>
+          <label><span>Subject</span><input id="handoffSubject" value="CairnStone V7 handoff"></label>
+          <label><span>Task / intent</span><textarea id="handoffTask" rows="6" placeholder="Describe the continuation or task."></textarea></label>
+          <div class="two-col"><label><span>Package ID <small>(optional)</small></span><input id="handoffPackage" placeholder="sha256:…"></label><label><span>Priority</span><select id="handoffPriority"><option>low</option><option selected>normal</option><option>high</option><option>urgent</option></select></label></div>
+          <fieldset><legend>Continuation ref <small>(optional)</small></legend><label><span>Stone hash</span><input id="continuationHash" placeholder="64-hex CairnStone hash"></label><label><span>Path / note</span><input id="continuationPath" placeholder="project-memory/…"></label></fieldset>
+          <fieldset><legend>Immutable GitHub artifact <small>(optional)</small></legend><div class="two-col"><label><span>Owner</span><input id="artifactOwner" placeholder="nothinginfinity"></label><label><span>Repo</span><input id="artifactRepo" placeholder="cairnstone-v6"></label></div><label><span>Path</span><input id="artifactPath" placeholder="docs/…"></label><label><span>Commit SHA</span><input id="artifactCommit" placeholder="40-hex immutable commit"></label></fieldset>
+          <button id="handoffButton" class="primary" type="button">Dispatch handoff</button>
+          <pre id="handoffResult" class="code-block wrap">No handoff sent yet.</pre>
+        </div>
+      </section>
+    </main>
+    <footer>V7.2 client · accepted state remains in CairnStone · V7.3 execution broker not present</footer>
+  </div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
