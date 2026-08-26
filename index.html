@@ -29,6 +29,7 @@
       <button class="tab" data-panel="handoff" type="button">Handoff</button>
       <button class="tab" data-panel="activity" type="button">Activity</button>
       <button class="tab" data-panel="stones" type="button">Stones</button>
+      <button class="tab" data-panel="authorize" type="button">Authorize</button>
     </nav>
     <main>
       <section id="panel-chat" class="panel active">
@@ -109,8 +110,29 @@
           <button id="copyStoneHash" class="secondary" type="button" disabled>Copy hash</button>
         </div>
       </section>
+      <section id="panel-authorize" class="panel">
+        <div class="card">
+          <div class="section-heading"><div><div class="eyebrow">V7.3.3 trusted human boundary</div><h2>Pending authorizations</h2></div><button id="authorizationRefresh" class="secondary" type="button">Refresh</button></div>
+          <p class="muted small">This surface is outside the model-callable MCP tool catalog. Approval is bound to one immutable request and uses a separate operator bearer token kept only in this browser session.</p>
+          <label><span>Operator token</span><input id="operatorToken" type="password" autocomplete="off" placeholder="CAIRNSTONE_OPERATOR_TOKEN"></label>
+          <div id="authorizationList" class="message-list"><p class="muted">Enter the operator token and refresh to load pending requests.</p></div>
+        </div>
+        <div class="card">
+          <div class="eyebrow">Exact immutable request</div>
+          <h2 id="authorizationTitle">No authorization selected</h2>
+          <div id="authorizationMeta" class="chips"></div>
+          <div id="authorizationSummary" class="evidence-grid"></div>
+          <details open><summary>Exact stored arguments</summary><pre id="authorizationArguments" class="code-block wrap">Select a pending request.</pre></details>
+          <details><summary>Immutable request / provenance</summary><pre id="authorizationRaw" class="code-block wrap">{}</pre></details>
+          <div class="two-col">
+            <button id="authorizationReject" class="secondary" type="button" disabled>Reject</button>
+            <button id="authorizationApprove" class="primary" type="button" disabled>Approve & Execute</button>
+          </div>
+          <pre id="authorizationResult" class="code-block wrap">No decision submitted.</pre>
+        </div>
+      </section>
     </main>
-    <footer>V7.2 client · accepted state remains in CairnStone · V7.3 execution broker not present</footer>
+    <footer>V7.3.3 client · model intent is not execution authority · accepted state remains in CairnStone</footer>
   </div>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script type="module" src="./app.js"></script>
