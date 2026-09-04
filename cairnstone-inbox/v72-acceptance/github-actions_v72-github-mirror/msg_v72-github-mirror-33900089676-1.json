@@ -1,0 +1,58 @@
+{
+  "schema": "cairnstone-github-inbox-mirror-v1",
+  "authority": "ac1_message_stone",
+  "ac1": {
+    "message_id": "msg:v72-github-mirror-33900089676-1",
+    "thread_id": "v72-live-acceptance",
+    "stone_hash": "0393c70ba2e5eda0615b025fddadf4e0d965aba82c4b5aab99a30e9335cf09f5",
+    "immutable_message_stone": true
+  },
+  "envelope": {
+    "subject": "V7.2 GitHub inbox mirror acceptance",
+    "priority": "normal",
+    "recipient": "github-actions:v72-github-mirror"
+  },
+  "handoff": {
+    "schema": "cairnstone-handoff-v1",
+    "from": "github-actions:v72-acceptance",
+    "to": [
+      "github-actions:v72-github-mirror"
+    ],
+    "thread_id": "v72-live-acceptance",
+    "task": "Verify the optional external GitHub inbox transport mirror without granting authority.",
+    "chain": "cairnstone-v6-project-memory",
+    "package_id": "sha256:5abff2203e0f866d1efb63f2e83aba044527c9a04b2426c13a113015b09b3fc1",
+    "continuation_refs": [
+      {
+        "stone_hash": "9294e5e0971fbca518516538ae205ca7d41147338a5a1062a85f16a3777ea33e",
+        "path": "project-memory/v72-read-only-delegation-live.md",
+        "note": null
+      }
+    ],
+    "github_artifact": {
+      "owner": "nothinginfinity",
+      "repo": "cairnstone-v6",
+      "path": "docs/ROADMAP_V7.md",
+      "commit_sha": "81214176c9df49642eb1bf4c5c077e6549b315ff"
+    },
+    "github_inbox": {
+      "owner": "nothinginfinity",
+      "repo": "cairnstone-v6-console",
+      "branch": "main",
+      "path_prefix": "cairnstone-inbox/v72-acceptance"
+    },
+    "policy": {
+      "transport_only": true,
+      "execution_authority": false,
+      "mutation_authority": false,
+      "accepted_state_authority": false,
+      "external_mirror_authority": false
+    }
+  },
+  "policy": {
+    "transport_mirror_only": true,
+    "execution_authority": false,
+    "mutation_authority": false,
+    "accepted_state_authority": false
+  }
+}
