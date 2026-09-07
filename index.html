@@ -14,14 +14,43 @@
       <div><div class="eyebrow">CairnStone V7</div><h1>Console</h1></div>
       <button id="healthButton" class="status-pill" type="button"><span id="healthDot" class="dot"></span><span id="healthText">Checking…</span></button>
     </header>
+
     <section class="runtime-card card">
       <label><span>Runtime MCP</span><input id="runtimeUrl" autocomplete="url"></label>
-      <div class="two-col">
-        <label><span>Actor ID</span><input id="actorId" value="console:jared" autocomplete="off"></label>
-        <label><span>Chain</span><input id="chainId" value="cairnstone-v6-project-memory" autocomplete="off"></label>
-      </div>
+      <label><span>Actor ID</span><input id="actorId" value="console:jared" autocomplete="off"></label>
       <p class="muted small">Console actions never grant delegated execution or mutation authority.</p>
     </section>
+
+    <section class="scope-card card">
+      <div class="section-heading">
+        <div>
+          <div class="eyebrow">Global workspace</div>
+          <h2>Scope</h2>
+        </div>
+        <button id="universeButton" class="secondary" type="button">Bird’s Eye</button>
+      </div>
+      <div class="scope-status">
+        <strong id="scopeSummary">Loading Scope…</strong>
+        <span id="scopeAuthority" class="muted small">Resolving accepted chain HEAD snapshot.</span>
+      </div>
+      <div class="scope-tools">
+        <label class="scope-search"><span>Find repository or chain</span><input id="scopeSearch" type="search" placeholder="Search CairnStone…"></label>
+        <div class="scope-actions">
+          <button id="scopeAll" class="secondary" type="button">All CairnStone</button>
+          <button id="scopeDefault" class="secondary" type="button">Project memory</button>
+        </div>
+      </div>
+      <div id="scopeRecentsWrap" class="scope-recents hidden">
+        <span class="muted small">Recent</span>
+        <div id="scopeRecents" class="chips"></div>
+      </div>
+      <details id="scopePicker">
+        <summary>Browse repositories & chains</summary>
+        <div id="scopeCatalog" class="scope-catalog"><p class="muted">Loading catalog…</p></div>
+      </details>
+      <div id="scopeCoverage" class="muted small"></div>
+    </section>
+
     <nav class="tabs">
       <button class="tab active" data-panel="chat" type="button">Chat</button>
       <button class="tab" data-panel="evidence" type="button">Evidence</button>
@@ -31,46 +60,61 @@
       <button class="tab" data-panel="stones" type="button">Stones</button>
       <button class="tab" data-panel="authorize" type="button">Authorize</button>
     </nav>
+
     <main>
       <section id="panel-chat" class="panel active">
         <div class="card">
-          <div class="section-heading"><div><div class="eyebrow">Read-only delegation</div><h2>Ask the runtime</h2></div><button id="refreshModels" class="secondary" type="button">Models</button></div>
-          <div class="two-col"><label><span>Provider</span><select id="providerSelect"></select></label><label><span>Model</span><select id="modelSelect"></select></label></div>
-          <label id="credentialAliasWrap" class="hidden"><span>Credential alias</span><input id="credentialAlias" value="default" autocomplete="off"></label>
-          <label><span>Task</span><textarea id="taskInput" rows="7" maxlength="4000" placeholder="Ask for a bounded diagnosis, review, summary, or investigation grounded in accepted CairnStone state."></textarea></label>
-          <div class="two-col compact"><label><span>Output tokens</span><input id="outputTokens" type="number" min="1" max="2048" value="800"></label><label><span>Temperature</span><input id="temperature" type="number" min="0" max="2" step="0.1" value="0.2"></label></div>
-          <label class="check-row"><input id="includeInbox" type="checkbox" checked><span>Include non-mutating AC1 inbox snapshot in server-side context</span></label>
-          <button id="delegateButton" class="primary" type="button">Delegate read-only task</button>
+          <div class="section-heading">
+            <div><div class="eyebrow">Scope-grounded reasoning</div><h2>Ask the runtime</h2></div>
+            <button id="refreshModels" class="secondary" type="button">Models</button>
+          </div>
+          <p id="chatModeNote" class="muted small"></p>
+          <div id="singleChainRouteControls">
+            <div class="two-col"><label><span>Provider</span><select id="providerSelect"></select></label><label><span>Model</span><select id="modelSelect"></select></label></div>
+            <label id="credentialAliasWrap" class="hidden"><span>Credential alias</span><input id="credentialAlias" value="default" autocomplete="off"></label>
+          </div>
+          <label><span>Question / task</span><textarea id="taskInput" rows="7" maxlength="4000" placeholder="Ask a bounded question grounded in the current Scope."></textarea></label>
+          <div class="two-col compact">
+            <label><span>Output tokens</span><input id="outputTokens" type="number" min="128" max="2000" value="800"></label>
+            <label id="temperatureWrap"><span>Temperature <small>(single-chain delegation)</small></span><input id="temperature" type="number" min="0" max="2" step="0.1" value="0.2"></label>
+          </div>
+          <label id="includeInboxWrap" class="check-row"><input id="includeInbox" type="checkbox" checked><span>Include non-mutating AC1 inbox snapshot in single-chain delegation context</span></label>
+          <button id="delegateButton" class="primary" type="button">Ask current Scope</button>
         </div>
         <div class="card result-card">
-          <div class="section-heading"><div><div class="eyebrow">Delegated result</div><h2 id="resultTitle">No result yet</h2></div><button id="copyResult" class="secondary" type="button" disabled>Copy</button></div>
+          <div class="section-heading"><div><div class="eyebrow">Grounded result</div><h2 id="resultTitle">No result yet</h2></div><button id="copyResult" class="secondary" type="button" disabled>Copy</button></div>
           <div id="resultMeta" class="chips"></div>
-          <div id="resultText" class="prose muted">Run a delegated task to see the compact response here.</div>
+          <div id="resultText" class="prose muted">Ask the current Scope to see a grounded response here.</div>
         </div>
       </section>
+
       <section id="panel-evidence" class="panel">
         <div class="card">
           <div class="section-heading"><div><div class="eyebrow">Independent inspection</div><h2>Evidence</h2></div><button id="copyEvidence" class="secondary" type="button" disabled>Copy JSON</button></div>
           <div id="authoritySummary" class="evidence-grid"></div>
-          <details open><summary>Accepted path HEADs</summary><div id="pathHeads" class="list"></div></details>
+          <details open><summary>Accepted / cited evidence</summary><div id="pathHeads" class="list"></div></details>
           <details><summary>Selected skills</summary><div id="skillsList" class="list"></div></details>
           <details><summary>Memory refs</summary><div id="memoryRefs" class="list"></div></details>
-          <details><summary>Observability</summary><pre id="observability" class="code-block">{}</pre></details>
+          <details><summary>Observability / coverage</summary><pre id="observability" class="code-block">{}</pre></details>
         </div>
       </section>
+
       <section id="panel-inbox" class="panel">
         <div class="card">
           <div class="section-heading"><div><div class="eyebrow">Native AC1</div><h2>Inbox</h2></div><button id="refreshInbox" class="secondary" type="button">Refresh</button></div>
+          <div class="scope-caveat">Inbox is <strong>not</strong> auto-filtered by Scope: compact AC1 inbox metadata does not carry an authoritative chain association. Filtering would require inventing metadata or marking messages read.</div>
           <label><span>Recipient actor</span><input id="inboxActor" value="console:jared" autocomplete="off"></label>
           <div id="inboxList" class="message-list"><p class="muted">Refresh to load correspondence.</p></div>
         </div>
         <div class="card"><div class="eyebrow">Message reader</div><h2 id="messageTitle">No message selected</h2><div id="messageMeta" class="chips"></div><pre id="messageContent" class="code-block wrap">Select a message to read it. Reading mutates delivery state only; the message stone remains immutable.</pre></div>
       </section>
+
       <section id="panel-handoff" class="panel">
         <div class="card">
           <div class="eyebrow">Structured AC1 dispatch</div><h2>Send handoff</h2>
           <p class="muted small">Creates immutable correspondence. It transports intent and provenance but grants no execution, mutation, or accepted-state authority.</p>
-          <label><span>Recipients <small>(comma-separated actor IDs)</small></span><input id="handoffTo" placeholder="claude:cairnstone-v6"></label>
+          <label><span>Associated chain <small>(must be an exact participating chain)</small></span><select id="handoffChain"></select></label>
+          <label><span>Recipients <small>(comma-separated actor IDs)</small></span><input id="handoffTo" placeholder="claude:cairnstone-v7"></label>
           <label><span>Subject</span><input id="handoffSubject" value="CairnStone V7 handoff"></label>
           <label><span>Task / intent</span><textarea id="handoffTask" rows="6" placeholder="Describe the continuation or task."></textarea></label>
           <div class="two-col"><label><span>Package ID <small>(optional)</small></span><input id="handoffPackage" placeholder="sha256:…"></label><label><span>Priority</span><select id="handoffPriority"><option>low</option><option selected>normal</option><option>high</option><option>urgent</option></select></label></div>
@@ -81,10 +125,12 @@
           <pre id="handoffResult" class="code-block wrap">No handoff sent yet.</pre>
         </div>
       </section>
+
       <section id="panel-activity" class="panel">
         <div class="card">
           <div class="section-heading"><div><div class="eyebrow">Combined AC1 view</div><h2>Recent activity</h2></div><button id="activityRefresh" class="secondary" type="button">Refresh</button></div>
-          <label><span>Actor IDs <small>(comma-separated; each inbox is queried independently)</small></span><input id="activityActors" placeholder="console:jared, claude:cairnstone-v6"></label>
+          <div class="scope-caveat">Activity uses real recipient/thread metadata only. It is not silently filtered by the global Scope because compact AC1 listing metadata does not expose a trustworthy chain field.</div>
+          <label><span>Actor IDs <small>(comma-separated; each inbox is queried independently)</small></span><input id="activityActors" placeholder="console:jared, claude:cairnstone-v7"></label>
           <div class="two-col compact">
             <label><span>Filter</span><select id="activityFilter"><option value="all">All</option><option value="handoff">Handoffs only</option><option value="message">Messages/other</option></select></label>
             <label class="check-row"><input id="activityGroupThreads" type="checkbox" checked><span>Group by thread</span></label>
@@ -92,24 +138,23 @@
           <div id="activityList" class="message-list"><p class="muted">Refresh to load recent activity across the actor IDs above.</p></div>
         </div>
       </section>
+
       <section id="panel-stones" class="panel">
         <div class="card">
-          <div class="section-heading"><div><div class="eyebrow">Stone browser</div><h2>Stones</h2></div><button id="stonesRefresh" class="secondary" type="button">Refresh</button></div>
-          <div class="two-col">
-            <label><span>Chain</span><input id="stonesChain" placeholder="cairnstone-v6-project-memory"></label>
-            <label><span>Search <small>(optional)</small></span><input id="stonesQuery" placeholder="filter by title/path"></label>
-          </div>
+          <div class="section-heading"><div><div class="eyebrow">Scope-aware stone browser</div><h2>Stones</h2></div><button id="stonesRefresh" class="secondary" type="button">Refresh</button></div>
+          <label><span>Search current Scope <small>(leave blank for chain overview / single-chain recent stones)</small></span><input id="stonesQuery" placeholder="title, path, decision, feature…"></label>
           <div id="stonesHead" class="chips"></div>
-          <div id="stonesList" class="message-list"><p class="muted">Refresh to list stones for the chain above.</p></div>
+          <div id="stonesList" class="message-list"><p class="muted">Refresh to browse the current Scope.</p></div>
         </div>
         <div class="card">
-          <div class="eyebrow">Stone detail</div>
+          <div class="eyebrow">Stone / evidence detail</div>
           <h2 id="stoneDetailTitle">No stone selected</h2>
           <div id="stoneDetailMeta" class="chips"></div>
-          <details open><summary>LOD5 / LOD4 summary</summary><pre id="stoneDetailSummary" class="code-block wrap">Select a stone to see its summary.</pre></details>
+          <details open><summary>Summary / preview</summary><pre id="stoneDetailSummary" class="code-block wrap">Select a stone or search match to see its summary.</pre></details>
           <button id="copyStoneHash" class="secondary" type="button" disabled>Copy hash</button>
         </div>
       </section>
+
       <section id="panel-authorize" class="panel">
         <div class="card">
           <div class="section-heading"><div><div class="eyebrow">V7.3.3 trusted human boundary</div><h2>Authorization history</h2></div><button id="authorizationRefresh" class="secondary" type="button">Refresh</button></div>
@@ -132,8 +177,31 @@
         </div>
       </section>
     </main>
-    <footer>V7.3.3 client · model intent is not execution authority · accepted state remains in CairnStone</footer>
+
+    <footer>V7.7.3 Console · Scope is navigation/retrieval context, never synthetic global authority · accepted state remains in CairnStone</footer>
   </div>
+
+  <div id="universeOverlay" class="universe-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="universeTitle">
+    <div class="universe-shell">
+      <header class="universe-header">
+        <div><div class="eyebrow">Bird’s Eye / Universe</div><h2 id="universeTitle">CairnStone Scope</h2></div>
+        <button id="universeClose" class="secondary" type="button">Close</button>
+      </header>
+      <div class="universe-controls">
+        <input id="universeSearch" type="search" placeholder="Search to focus…">
+        <button id="universeLod" class="secondary" type="button">LOD: Repos</button>
+        <button id="universeMulti" class="secondary" type="button">Multi-select</button>
+        <button id="universeApply" class="primary compact-button" type="button" disabled>Apply multi</button>
+      </div>
+      <div class="universe-legend muted small">Position, proximity, size, clustering, and animation are visualization only. Repository membership comes from catalog provenance; no synthetic global HEAD or permanent graph edge is created here.</div>
+      <div id="universeCanvas" class="universe-canvas" aria-label="Spatial repository and chain projection"></div>
+      <div id="universeFallback" class="universe-fallback">
+        <div class="eyebrow">List fallback</div>
+        <div id="universeFallbackList" class="scope-catalog"></div>
+      </div>
+    </div>
+  </div>
+
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script type="module" src="./app.js"></script>
 </body>

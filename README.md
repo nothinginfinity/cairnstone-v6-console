@@ -1,29 +1,40 @@
 # CairnStone V7 Console
 
-A thin, provider-neutral client for the live CairnStone V7 runtime.
+A thin, provider-neutral browser client for the live CairnStone V7 runtime.
 
-## V7.3.3 scope
+## V7.7.3 scope workspace
 
-The Console now includes the first trusted human-confirmation surface for V7.3.3 while preserving the V7.2 read-only delegation boundary:
+V7.7.3 turns the previous single-Chain Console into a shared multi-repository / multi-chain workspace while preserving CairnStone authority boundaries.
 
-- delegated chat uses `cairnstone_delegate`;
-- evidence is rendered from the compact delegation result;
-- inbox reads use `cairnstone_get_inbox` / `cairnstone_read_message`;
-- handoffs use `cairnstone_dispatch_handoff`;
-- handoffs may explicitly request an optional GitHub-backed inbox mirror for inspectable asynchronous transport;
-- GitHub mirror artifacts are deterministic per-recipient/message files and remain subordinate to the immutable AC1 message stone;
-- mirror write failures are isolated and never roll back the canonical AC1 handoff;
-- delegated models receive zero tools and zero execution/mutation authority;
-- V7.3.3 pending mutation requests are reviewed in the **Authorize** tab;
-- approval/denial uses REST-only operator endpoints that are deliberately absent from the MCP tool catalog;
-- the operator bearer comes from the Worker secret `CAIRNSTONE_OPERATOR_TOKEN`, is entered by the human operator, and is stored only in browser `sessionStorage`;
-- approval binds to the immutable request Stone, exact argument digest, and concurrency guard; execution accepts no replacement mutation arguments;
-- the server atomically consumes one grant, rechecks the reviewed guard, executes once, independently reads back the result, and writes immutable grant/execution evidence;
-- a missing operator secret fails closed and leaves all pending requests non-executable.
+- one global **Scope** control resolves the existing `cairnstone-scope-v1` selectors (`single_chain`, `repo`, `multi`, `vault`);
+- the catalog comes from `cairnstone_vault_catalog`; the resolved authority snapshot comes from `cairnstone_resolve_scope`;
+- list selection supports searchable repository grouping, child chains, explicit multi-select, recents, and `All CairnStone`;
+- Chat uses the existing single-chain `cairnstone_delegate` path for one-chain Scope and `cairnstone_ask_scope` for multi/repo/vault grounded Q&A;
+- Evidence renders the exact resolved Scope identity plus citation/coverage evidence returned by the runtime;
+- Stones uses single-chain listing when narrowed to one chain and `cairnstone_find_scope` for cross-Scope search;
+- Handoff association is explicit: the human chooses one exact participating chain because AC1 handoffs carry one chain field;
+- Inbox and Activity are deliberately **not** auto-filtered by Scope because compact correspondence listing metadata does not expose a trustworthy chain association;
+- Bird’s Eye / Universe is a full-screen spatial projection of the same Scope selectors, with search-to-focus, repository/chain semantic LOD, explicit multi-select, and a list fallback;
+- spatial position, proximity, clustering, size, and animation are presentation only. They are never authority and never create graph edges;
+- repository grouping shown in the projection comes from catalog provenance;
+- no synthetic global HEAD is created. Every participating chain retains its own canonical chain HEAD and accepted path HEADs.
+
+The console remains dependency-free and requires no WebGL. The Universe projection uses ordinary DOM/CSS so a usable list fallback is always present.
+
+## Existing trusted-human boundary
+
+The V7.3.3 authorization surface remains intact:
+
+- delegated models receive zero execution/mutation authority;
+- pending mutation requests are reviewed in **Authorize**;
+- approval/denial uses REST-only operator endpoints deliberately absent from the MCP tool catalog;
+- the operator bearer is entered by the human and kept only in browser `sessionStorage`;
+- approval binds to the immutable request Stone, exact argument digest, and concurrency guard;
+- execution accepts no replacement mutation arguments.
 
 Default runtime: `https://cairnstone-v6.jaredtechfit.workers.dev/mcp`
 
-The browser client talks to the MCP endpoint directly over JSON-RPC.
+The browser talks to the MCP endpoint directly over JSON-RPC.
 
 ## Run locally
 
@@ -35,10 +46,10 @@ Then open `http://localhost:8080`.
 
 ## Operator setup
 
-Set a strong Worker secret named `CAIRNSTONE_OPERATOR_TOKEN` on `cairnstone-v6`. Do **not** put it in this repository or any model prompt. The human operator enters it in the Authorize tab for the browser session only. The optional plain-text binding `CAIRNSTONE_OPERATOR_SUBJECT` may name the human/operator identity recorded in grant evidence; otherwise the runtime records `operator:cairnstone-console`.
+Set a strong Worker secret named `CAIRNSTONE_OPERATOR_TOKEN` on `cairnstone-v6`. Do **not** put it in this repository or any model prompt. The human operator enters it in the Authorize tab for the browser session only.
 
 ## Authority model
 
-The Console is a client, not a source of accepted state. CairnStone chain/path HEADs remain canonical authority. AC1 handoff messages are immutable correspondence artifacts and transport intent only.
+The Console is a client, not a source of accepted state. Scope is navigation/retrieval context only. CairnStone chain/path HEADs remain canonical authority. AC1 handoff messages are immutable correspondence artifacts and transport intent only.
 
 The optional GitHub inbox mirror is transport-only. The browser sends only the target owner/repo/branch/path prefix to CairnStone; GitHub credentials remain server-side in the runtime. A mirror artifact records its AC1 stone hash and explicitly carries zero execution, mutation, external-mirror, or accepted-state authority.
