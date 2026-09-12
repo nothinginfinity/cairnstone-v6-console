@@ -51,6 +51,26 @@ function selectedScopes(root) {
     .map(el => el.getAttribute('data-scope'));
 }
 
+function formatCountdown(iso) {
+  const ms = Date.parse(iso || '');
+  if (!ms) return '';
+  const delta = ms - Date.now();
+  if (delta <= 0) return 'time elapsed — refresh server state';
+  const sec = Math.floor(delta / 1000);
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  if (h) return `${h}h ${m}m left`;
+  if (m) return `${m}m ${s}s left`;
+  return `${s}s left`;
+}
+
+function countdownChip(label, iso) {
+  if (!iso) return '';
+  const left = formatCountdown(iso);
+  return `<span class="chip" data-countdown-iso="${iso.replaceAll('"', '')}">${label}: ${left}</span>`;
+}
+
 function lifecycleLabel(row) {
   const invite = row.invite || {};
   const state = String(invite.state || row.state || 'unknown').toLowerCase();
@@ -95,11 +115,14 @@ export function initInvitePanel(api) {
     mailboxActor: document.getElementById('mailboxActor'),
     mailboxTtl: document.getElementById('mailboxTtl'),
     mailboxIssue: document.getElementById('mailboxIssue'),
+    mailboxReissue: document.getElementById('mailboxReissue'),
+    mailboxCountdown: document.getElementById('mailboxCountdown'),
     mailboxCopy: document.getElementById('mailboxCopy'),
     mailboxClear: document.getElementById('mailboxClear'),
     mailboxResult: document.getElementById('mailboxResult')
   };
   let issuedMailboxToken = '';
+  let lastMailboxIssue = null;
 
   if (els.actors && !els.actors.value.trim()) els.actors.value = DEFAULT_ACTORS.join('\n');
   if (els.workspace && !els.workspace.value.trim()) els.workspace.value = DEFAULT_WORKSPACE;
@@ -124,7 +147,8 @@ export function initInvitePanel(api) {
           ${chip(`fp ${String(fp).slice(0, 12)}`)}
           ${chip(`role ${invite.membership_role || row.membership_role || '—'}`)}
           ${chip(`inbox ${row.inbox_status || 'unknown'}`)}
-          ${invite.grant_expires_at ? chip(`grant_expires ${invite.grant_expires_at}`) : ''}
+          ${invite.expires_at ? countdownChip('invite', invite.expires_at) : ''}
+          ${invite.grant_expires_at ? countdownChip('grant', invite.grant_expires_at) : ''}
         </div>
         <div class="invite-actions">
           <button type="button" class="secondary" data-copy-prompt="${esc(row.invite_id)}">Copy check-inbox prompt</button>
@@ -337,17 +361,36 @@ export function initInvitePanel(api) {
       .map(el => el.getAttribute('data-mailbox-scope'));
   }
 
+  function tickCountdowns() {
+    document.querySelectorAll('[data-countdown-iso]').forEach(el => {
+      const iso = el.getAttribute('data-countdown-iso');
+      const label = el.textContent.split(':')[0];
+      el.textContent = `${label}: ${formatCountdown(iso)}`;
+    });
+    if (els.mailboxCountdown) {
+      if (!lastMailboxIssue?.expires_at) {
+        els.mailboxCountdown.textContent = 'No mailbox ticket on screen.';
+      } else {
+        const who = lastMailboxIssue.principal_actor_id || 'actor';
+        els.mailboxCountdown.textContent = `Mailbox ticket for ${who}: ${formatCountdown(lastMailboxIssue.expires_at)} (metadata only; Issue/Reissue mints a new signed cap).`;
+      }
+    }
+  }
+
   function showMailboxMeta(issued) {
+    lastMailboxIssue = issued || null;
     const meta = {
       ok: issued?.ok === true,
       principal_actor_id: issued?.principal_actor_id || null,
       scopes: issued?.scopes || [],
       issued_at: issued?.issued_at || null,
       expires_at: issued?.expires_at || null,
+      remaining: formatCountdown(issued?.expires_at),
       token_present: Boolean(issuedMailboxToken),
-      reminder: 'Copy into the destination host secure field only. Do not stone or paste into chat.'
+      reminder: 'Copy into the destination host secure field only. Do not stone or paste into chat. Reissue mints a new cap; it does not extend the old signature.'
     };
     if (els.mailboxResult) els.mailboxResult.textContent = JSON.stringify(meta, null, 2);
+    tickCountdowns();
   }
 
   async function issueMailboxCapability() {
@@ -369,7 +412,7 @@ export function initInvitePanel(api) {
       issuedMailboxToken = issued.mailbox_capability;
       if (els.mailboxCopy) els.mailboxCopy.disabled = false;
       showMailboxMeta(issued);
-      toast(`Issued mailbox cap for ${principal} — copy now, then clear`);
+      toast(`Issued mailbox cap for ${principal} — copy now; Reissue mints a new one`);
     } catch (err) {
       issuedMailboxToken = '';
       if (els.mailboxCopy) els.mailboxCopy.disabled = true;
@@ -387,6 +430,7 @@ export function initInvitePanel(api) {
   });
   els.composeSend?.addEventListener('click', composeSend);
   els.mailboxIssue?.addEventListener('click', issueMailboxCapability);
+  els.mailboxReissue?.addEventListener('click', issueMailboxCapability);
   els.mailboxCopy?.addEventListener('click', () => {
     if (!issuedMailboxToken) return toast('No token on screen');
     navigator.clipboard.writeText(issuedMailboxToken).then(() => toast('Mailbox token copied — paste into host secure field, then clear')).catch(() => toast('Copy failed'));
@@ -394,8 +438,12 @@ export function initInvitePanel(api) {
   els.mailboxClear?.addEventListener('click', () => {
     issuedMailboxToken = '';
     if (els.mailboxCopy) els.mailboxCopy.disabled = true;
+    lastMailboxIssue = null;
     if (els.mailboxResult) els.mailboxResult.textContent = 'Cleared from this browser session.';
+    tickCountdowns();
     toast('Mailbox token cleared from screen');
   });
+  setInterval(tickCountdowns, 1000);
   render();
+  tickCountdowns();
 }
