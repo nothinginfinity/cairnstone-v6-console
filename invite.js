@@ -53,14 +53,10 @@ function selectedScopes(root) {
 
 function lifecycleLabel(row) {
   const invite = row.invite || {};
-  const state = invite.state || row.state || 'unknown';
+  const state = String(invite.state || row.state || 'unknown').toLowerCase();
   if (state === 'revoked') return 'Revoked';
   if (state === 'expired') return 'Expired';
-  if (state === 'claimed') {
-    const exp = Date.parse(invite.grant_expires_at || '') || 0;
-    if (exp && exp <= Date.now()) return 'Expired';
-    return invite.grant_expires_at ? 'Active' : 'Claimed';
-  }
+  if (state === 'claimed') return 'Claimed';
   if (row.inbox_status === 'read') return 'Read';
   if (row.inbox_status === 'delivered' || row.notice_sent) return 'Delivered';
   if (state === 'pending' || row.invite_id) return 'Created';
@@ -121,6 +117,7 @@ export function initInvitePanel(api) {
           ${chip(`fp ${String(fp).slice(0, 12)}`)}
           ${chip(`role ${invite.membership_role || row.membership_role || '—'}`)}
           ${chip(`inbox ${row.inbox_status || 'unknown'}`)}
+          ${invite.grant_expires_at ? chip(`grant_expires ${invite.grant_expires_at}`) : ''}
         </div>
         <div class="invite-actions">
           <button type="button" class="secondary" data-copy-prompt="${esc(row.invite_id)}">Copy check-inbox prompt</button>
