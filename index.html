@@ -1,1 +1,134 @@
-PLACEHOLDER
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#101319">
+  <link rel="icon" href="data:,">
+  <title>CairnStone V7 Console</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div><div class="eyebrow">CairnStone V7</div><h1>Console</h1></div>
+      <button id="healthButton" class="status-pill" type="button"><span id="healthDot" class="dot"></span><span id="healthText">Checking...</span></button>
+    </header>
+    <section class="runtime-card card">
+      <label><span>Runtime MCP</span><input id="runtimeUrl" autocomplete="url"></label>
+      <label><span>Actor ID</span><input id="actorId" value="console:jared" autocomplete="off"></label>
+      <p class="muted small">Console actions never grant delegated execution or mutation authority.</p>
+    </section>
+    <section class="scope-card card">
+      <div class="section-heading">
+        <div><div class="eyebrow">Global workspace</div><h2>Scope</h2></div>
+        <button id="universeButton" class="secondary" type="button">Bird's Eye</button>
+      </div>
+      <div class="scope-status">
+        <strong id="scopeSummary">Loading Scope...</strong>
+        <span id="scopeAuthority" class="muted small">Resolving accepted chain HEAD snapshot.</span>
+      </div>
+      <div class="scope-tools">
+        <label class="scope-search"><span>Find repository or chain</span><input id="scopeSearch" type="search" placeholder="Search CairnStone..."></label>
+        <div class="scope-actions">
+          <button id="scopeAll" class="secondary" type="button">All CairnStone</button>
+          <button id="scopeDefault" class="secondary" type="button">Project memory</button>
+        </div>
+      </div>
+      <div id="scopeRecentsWrap" class="scope-recents hidden">
+        <span class="muted small">Recent</span>
+        <div id="scopeRecents" class="chips"></div>
+      </div>
+      <details id="scopePicker">
+        <summary>Browse repositories and chains</summary>
+        <div id="scopeCatalog" class="scope-catalog"><p class="muted">Loading catalog...</p></div>
+      </details>
+      <div id="scopeCoverage" class="muted small"></div>
+    </section>
+    <nav class="tabs">
+      <button class="tab active" data-panel="chat" type="button">Chat</button>
+      <button class="tab" data-panel="evidence" type="button">Evidence</button>
+      <button class="tab" data-panel="inbox" type="button">Inbox</button>
+      <button class="tab" data-panel="handoff" type="button">Handoff</button>
+      <button class="tab" data-panel="activity" type="button">Activity</button>
+      <button class="tab" data-panel="stones" type="button">Stones</button>
+      <button class="tab" data-panel="invite" type="button">Invite</button>
+      <button class="tab" data-panel="authorize" type="button">Authorize</button>
+    </nav>
+    <main>
+      <section id="panel-invite" class="panel">
+        <div class="card invite-card">
+          <div class="section-heading">
+            <div><div class="eyebrow">V7.7.6b trusted-human mint</div><h2>Invite to Workspace</h2></div>
+            <button id="inviteRefresh" class="secondary" type="button">Refresh status</button>
+          </div>
+          <p class="muted small">Minting uses the operator bearer already kept in this browser session. The Console never signs workspace capabilities and never stores a workspace bearer. AC1 notices carry only invite_id, fingerprint, and instructions.</p>
+          <label><span>Workspace ID</span><input id="inviteWorkspace" value="ws:v775-multi-actor-workplane" autocomplete="off"></label>
+          <label><span>Actors (one principal-bound invite each)</span><textarea id="inviteActors" rows="4">chatgpt:cairnstone-v6
+claude:cairnstone-v6
+grok:cairnstone-v6
+grok-bot:cairnstone-v6</textarea></label>
+          <div class="two-col compact">
+            <label><span>Membership role</span>
+              <select id="inviteRole">
+                <option value="drafter" selected>drafter</option>
+                <option value="proposer">proposer</option>
+                <option value="owner">owner</option>
+              </select>
+            </label>
+            <label><span>Invite TTL seconds</span><input id="inviteTtl" type="number" min="60" max="604800" value="86400"></label>
+          </div>
+          <label><span>Optional path prefix</span><input id="invitePrefix" placeholder="notes/" autocomplete="off"></label>
+          <fieldset>
+            <legend>Scopes</legend>
+            <label class="check-row"><input type="checkbox" data-scope="ls" checked><span>ls</span></label>
+            <label class="check-row"><input type="checkbox" data-scope="read" checked><span>read</span></label>
+            <label class="check-row"><input type="checkbox" data-scope="diff" checked><span>diff</span></label>
+            <label class="check-row"><input type="checkbox" data-scope="write_draft" checked><span>write_draft (does not imply propose)</span></label>
+            <label class="check-row"><input type="checkbox" data-scope="propose"><span>propose (explicit only)</span></label>
+          </fieldset>
+          <label><span>Instruction in AC1 notice</span><textarea id="inviteInstruction" rows="3">Join the workspace and review proposal 001. Claim with your mailbox capability. Do not paste workspace bearers into Stones or chat.</textarea></label>
+          <div class="invite-actions"><button id="inviteMint" class="primary" type="button">Mint & Send</button></div>
+          <label><span>Fallback human prompt</span><input id="inviteFallback" value="Check your CairnStone work inbox." readonly></label>
+          <button id="inviteCopyFallback" class="secondary" type="button">Copy fallback prompt</button>
+          <div id="inviteList" class="message-list"><p class="muted">No tracked invites in this browser session.</p></div>
+        </div>
+        <div class="card">
+          <div class="eyebrow">Ordinary AC1 compose</div>
+          <h2>Send message</h2>
+          <p class="muted small">Independent of invitations. Correspondence transports intent only.</p>
+          <label><span>Recipients</span><input id="composeTo" value="chatgpt:cairnstone-v6, claude:cairnstone-v6, grok:cairnstone-v6"></label>
+          <label><span>Subject</span><input id="composeSubject" value="CairnStone Console message"></label>
+          <label><span>Intent</span>
+            <select id="composeIntent">
+              <option value="message" selected>message</option>
+              <option value="handoff">handoff</option>
+              <option value="task_request">task_request</option>
+              <option value="ack">ack</option>
+            </select>
+          </label>
+          <label><span>Body</span><textarea id="composeBody" rows="4" placeholder="Ordinary human-to-model correspondence."></textarea></label>
+          <button id="composeSend" class="primary" type="button">Send message</button>
+          <pre id="composeResult" class="code-block wrap">No message sent yet.</pre>
+        </div>
+      </section>
+      <section id="panel-chat" class="panel active">
+        <div class="card"><p class="muted small">Chat, Evidence, Inbox, Handoff, Activity, Stones, and Authorize panels remain in app.js; this file restores Invite wiring. Open those tabs after app.js is restored from main plus initInvitePanel.</p></div>
+      </section>
+      <section id="panel-evidence" class="panel"></section>
+      <section id="panel-inbox" class="panel"></section>
+      <section id="panel-handoff" class="panel"></section>
+      <section id="panel-activity" class="panel"></section>
+      <section id="panel-stones" class="panel"></section>
+      <section id="panel-authorize" class="panel">
+        <div class="card">
+          <label><span>Operator token</span><input id="operatorToken" type="password" autocomplete="off" placeholder="CAIRNSTONE_OPERATOR_TOKEN"></label>
+        </div>
+      </section>
+    </main>
+    <footer>V7.7.6b Console</footer>
+  </div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
