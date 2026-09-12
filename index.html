@@ -181,6 +181,26 @@ grok-bot:cairnstone-v6</textarea></label>
           <div id="inviteList" class="message-list"><p class="muted">No tracked invites in this browser session.</p></div>
         </div>
         <div class="card">
+          <div class="section-heading">
+            <div><div class="eyebrow">V7.7.6c trusted-human mailbox issue</div><h2>Issue mailbox capability</h2></div>
+          </div>
+          <p class="muted small">Uses the same operator bearer as Mint. Issues a short-lived mail.read:self token for one actor so that actor can claim an invite. Show once, copy into the host secure field, never stone, never paste into chat.</p>
+          <label><span>Principal actor</span><input id="mailboxActor" value="grok-bot:cairnstone-v6" autocomplete="off"></label>
+          <label><span>TTL seconds (30–3600)</span><input id="mailboxTtl" type="number" min="30" max="3600" value="900"></label>
+          <fieldset>
+            <legend>Mailbox scopes</legend>
+            <label class="check-row"><input type="checkbox" data-mailbox-scope="mail.read:self" checked><span>mail.read:self (required to claim)</span></label>
+            <label class="check-row"><input type="checkbox" data-mailbox-scope="mail.reply:self"><span>mail.reply:self</span></label>
+            <label class="check-row"><input type="checkbox" data-mailbox-scope="task.consume:self"><span>task.consume:self</span></label>
+          </fieldset>
+          <div class="invite-actions">
+            <button id="mailboxIssue" class="primary" type="button">Issue mailbox capability</button>
+            <button id="mailboxCopy" class="secondary" type="button" disabled>Copy token</button>
+            <button id="mailboxClear" class="secondary" type="button">Clear from screen</button>
+          </div>
+          <pre id="mailboxResult" class="code-block wrap">No mailbox capability issued this session.</pre>
+        </div>
+        <div class="card">
           <div class="eyebrow">Ordinary AC1 compose</div>
           <h2>Send message</h2>
           <p class="muted small">Independent of invitations. Correspondence transports intent only.</p>

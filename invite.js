@@ -91,8 +91,15 @@ export function initInvitePanel(api) {
     composeBody: document.getElementById('composeBody'),
     composeIntent: document.getElementById('composeIntent'),
     composeSend: document.getElementById('composeSend'),
-    composeResult: document.getElementById('composeResult')
+    composeResult: document.getElementById('composeResult'),
+    mailboxActor: document.getElementById('mailboxActor'),
+    mailboxTtl: document.getElementById('mailboxTtl'),
+    mailboxIssue: document.getElementById('mailboxIssue'),
+    mailboxCopy: document.getElementById('mailboxCopy'),
+    mailboxClear: document.getElementById('mailboxClear'),
+    mailboxResult: document.getElementById('mailboxResult')
   };
+  let issuedMailboxToken = '';
 
   if (els.actors && !els.actors.value.trim()) els.actors.value = DEFAULT_ACTORS.join('\n');
   if (els.workspace && !els.workspace.value.trim()) els.workspace.value = DEFAULT_WORKSPACE;
@@ -324,11 +331,71 @@ export function initInvitePanel(api) {
     }
   }
 
+  function mailboxScopes() {
+    return [...document.querySelectorAll('[data-mailbox-scope]')]
+      .filter(el => el.checked)
+      .map(el => el.getAttribute('data-mailbox-scope'));
+  }
+
+  function showMailboxMeta(issued) {
+    const meta = {
+      ok: issued?.ok === true,
+      principal_actor_id: issued?.principal_actor_id || null,
+      scopes: issued?.scopes || [],
+      issued_at: issued?.issued_at || null,
+      expires_at: issued?.expires_at || null,
+      token_present: Boolean(issuedMailboxToken),
+      reminder: 'Copy into the destination host secure field only. Do not stone or paste into chat.'
+    };
+    if (els.mailboxResult) els.mailboxResult.textContent = JSON.stringify(meta, null, 2);
+  }
+
+  async function issueMailboxCapability() {
+    const principal = (els.mailboxActor?.value || '').trim();
+    const scopes = mailboxScopes();
+    if (!principal) return toast('Principal actor is required');
+    if (!scopes.includes('mail.read:self')) return toast('mail.read:self is required to claim');
+    busy(els.mailboxIssue, true, 'Issuing…');
+    try {
+      const issued = await operatorCall('/v1/mailbox-capabilities', {
+        method: 'POST',
+        body: {
+          principal_actor_id: principal,
+          scopes,
+          ttl_seconds: Number(els.mailboxTtl?.value || 900)
+        }
+      });
+      if (!issued?.mailbox_capability) throw new Error('mailbox_capability_missing');
+      issuedMailboxToken = issued.mailbox_capability;
+      if (els.mailboxCopy) els.mailboxCopy.disabled = false;
+      showMailboxMeta(issued);
+      toast(`Issued mailbox cap for ${principal} — copy now, then clear`);
+    } catch (err) {
+      issuedMailboxToken = '';
+      if (els.mailboxCopy) els.mailboxCopy.disabled = true;
+      if (els.mailboxResult) els.mailboxResult.textContent = JSON.stringify(err.payload || { error: err.message }, null, 2);
+      toast(err.message);
+    } finally {
+      busy(els.mailboxIssue, false, 'Issue mailbox capability');
+    }
+  }
+
   els.mint?.addEventListener('click', mintAndSend);
   els.refresh?.addEventListener('click', refreshAll);
   els.copyFallback?.addEventListener('click', () => {
     navigator.clipboard.writeText(els.fallback.value || FALLBACK_PROMPT).then(() => toast('Copied')).catch(() => toast('Copy failed'));
   });
   els.composeSend?.addEventListener('click', composeSend);
+  els.mailboxIssue?.addEventListener('click', issueMailboxCapability);
+  els.mailboxCopy?.addEventListener('click', () => {
+    if (!issuedMailboxToken) return toast('No token on screen');
+    navigator.clipboard.writeText(issuedMailboxToken).then(() => toast('Mailbox token copied — paste into host secure field, then clear')).catch(() => toast('Copy failed'));
+  });
+  els.mailboxClear?.addEventListener('click', () => {
+    issuedMailboxToken = '';
+    if (els.mailboxCopy) els.mailboxCopy.disabled = true;
+    if (els.mailboxResult) els.mailboxResult.textContent = 'Cleared from this browser session.';
+    toast('Mailbox token cleared from screen');
+  });
   render();
 }
