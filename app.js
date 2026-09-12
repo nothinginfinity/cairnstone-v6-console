@@ -1,3 +1,5 @@
+import { initInvitePanel } from './invite.js';
+
 const DEFAULT_RUNTIME = 'https://cairnstone-v6.jaredtechfit.workers.dev/mcp';
 const DEFAULT_CHAIN = 'cairnstone-v6-project-memory';
 const MAX_SCOPE_CATALOG_CHAINS = 500;
@@ -990,6 +992,16 @@ document.addEventListener('keydown', event => { if (event.key === 'Escape' && !e
 [e.runtimeUrl, e.actorId, e.inboxActor, e.activityActors].forEach(x => x.addEventListener('change', saveSettings));
 
 loadSettings();
+
+initInvitePanel({
+  mcpCall,
+  operatorCall,
+  toast,
+  busy,
+  esc,
+  chip,
+  actorId: () => (e.actorId?.value || 'console:jared').trim()
+});
 await health().catch(() => {});
 await loadVaultCatalog().catch(err => {
   e.scopeCatalog.innerHTML = `<p class="muted">${esc(err.message)}</p>`;
