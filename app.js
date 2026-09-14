@@ -31,6 +31,24 @@ import {
   normalizeMessageRow,
   sortMessagesNewestFirst
 } from './comms-hub.js';
+import {
+  buildUniverseEntities,
+  canZoomIn,
+  canZoomOut,
+  clampPanZoom,
+  focusFromScope,
+  layoutSpatialNodes,
+  lodLoadPlan,
+  normalizeViewMode,
+  normalizeZoom,
+  preserveSelection,
+  scopeSelectorFromEntity,
+  searchToFocus,
+  universeSurfaceState,
+  zoomIn,
+  zoomLabel,
+  zoomOut
+} from './universe-v2.js';
 
 const DEFAULT_RUNTIME = 'https://cairnstone-v6.jaredtechfit.workers.dev/mcp';
 const DEFAULT_CHAIN = 'cairnstone-v6-project-memory';
@@ -55,7 +73,15 @@ const state = {
   scope: { mode: 'single_chain', chains: [DEFAULT_CHAIN], max_chains: 200 },
   scopeSnapshot: null,
   scopeRecents: [],
-  universeLod: 'repos',
+  universeLod: 'vault',
+  universeViewMode: 'spatial',
+  universeFocus: { zoom: 'vault', type: 'vault', value: 'All CairnStone', repo: null, chain: null },
+  universeSelectionIds: [],
+  universeEntities: [],
+  universeIntelligence: null,
+  universeLoading: false,
+  universeError: null,
+  universePanZoom: { scale: 1, x: 0, y: 0 },
   universeMultiMode: false,
   universeMultiSelection: new Set()
 };
@@ -97,10 +123,16 @@ const e = {
   evidenceDrawerTitle: $('evidenceDrawerTitle'), evidenceDrawerSubtitle: $('evidenceDrawerSubtitle'), evidenceDrawerBody: $('evidenceDrawerBody'),
   scopeSummary: $('scopeSummary'), scopeAuthority: $('scopeAuthority'), scopeCoverage: $('scopeCoverage'), scopeSearch: $('scopeSearch'), scopeAll: $('scopeAll'), scopeDefault: $('scopeDefault'),
   scopeRecentsWrap: $('scopeRecentsWrap'), scopeRecents: $('scopeRecents'), scopeCatalog: $('scopeCatalog'), scopePicker: $('scopePicker'),
-  universeLandingSummary: $('universeLandingSummary'), universeLandingAuthority: $('universeLandingAuthority'),
+  universeLandingSummary: $('universeLandingSummary'), universeLandingAuthority: $('universeLandingAuthority'), universeLandingLod: $('universeLandingLod'),
   universeOpenScope: $('universeOpenScope'), universeOpenRuntime: $('universeOpenRuntime'),
   universeButton: $('universeButton'), universeOverlay: $('universeOverlay'), universeClose: $('universeClose'), universeSearch: $('universeSearch'), universeLod: $('universeLod'),
-  universeMulti: $('universeMulti'), universeApply: $('universeApply'), universeCanvas: $('universeCanvas'), universeFallbackList: $('universeFallbackList'),
+  universeZoomIn: $('universeZoomIn'), universeZoomOut: $('universeZoomOut'),
+  universeViewSpatial: $('universeViewSpatial'), universeViewList: $('universeViewList'), universeViewGrid: $('universeViewGrid'),
+  universeMulti: $('universeMulti'), universeApply: $('universeApply'),
+  universeStage: $('universeStage'), universeCanvasWrap: $('universeCanvasWrap'), universeCanvas: $('universeCanvas'),
+  universeFallback: $('universeFallback'), universeFallbackList: $('universeFallbackList'), universeFallbackLabel: $('universeFallbackLabel'),
+  universeGrid: $('universeGrid'), universeStatus: $('universeStatus'),
+  universeIntelPanel: $('universeIntelPanel'), universeIntelTitle: $('universeIntelTitle'), universeIntelMeta: $('universeIntelMeta'),
   providerSelect: $('providerSelect'), modelSelect: $('modelSelect'), credentialAliasWrap: $('credentialAliasWrap'), credentialAlias: $('credentialAlias'),
   singleChainRouteControls: $('singleChainRouteControls'), temperatureWrap: $('temperatureWrap'), includeInboxWrap: $('includeInboxWrap'), toolDelegateWrap: $('toolDelegateWrap'), toolDelegate: $('toolDelegate'),
   chatModeNote: $('chatModeNote'), answerDepthDefaults: $('answerDepthDefaults'),
@@ -367,7 +399,7 @@ async function setScope(scope, label, { recordRecent = true } = {}) {
   saveSettings();
   renderScopeCatalog();
   await resolveCurrentScope({ recordRecent, recentLabel: label });
-  if (!e.universeOverlay.classList.contains('hidden')) renderUniverse();
+  if (!e.universeOverlay.classList.contains('hidden')) renderUniverse().catch(() => {});
 }
 
 async function toggleChainInScope(chain) {
@@ -1259,9 +1291,15 @@ function primaryRepoGroups() {
 function openUniverse() {
   state.universeMultiMode = false;
   state.universeMultiSelection = new Set(state.scope.mode === 'multi' || state.scope.mode === 'single_chain' ? (state.scope.chains || []) : []);
+  state.universeFocus = focusFromScope(state.scope, state.scopeSnapshot);
+  state.universeLod = normalizeZoom(state.universeFocus.zoom || 'vault');
+  state.universeViewMode = 'spatial';
+  state.universePanZoom = { scale: 1, x: 0, y: 0 };
+  state.universeIntelligence = null;
+  state.universeError = null;
   e.universeOverlay.classList.remove('hidden');
   e.universeSearch.value = '';
-  renderUniverse();
+  renderUniverse().catch(err => toast(err.message));
   e.universeSearch.focus();
 }
 
@@ -1269,83 +1307,289 @@ function closeUniverse() {
   e.universeOverlay.classList.add('hidden');
 }
 
-function renderUniverse() {
+async function renderUniverse() {
   e.universeOverlay.classList.toggle('universe-multi-on', state.universeMultiMode);
-  e.universeLod.textContent = `LOD: ${state.universeLod === 'repos' ? 'Repos' : 'Chains'}`;
+  e.universeLod.textContent = `LOD: ${zoomLabel(state.universeLod)}`;
+  e.universeZoomIn.disabled = !canZoomIn(state.universeLod);
+  e.universeZoomOut.disabled = !canZoomOut(state.universeLod);
   e.universeApply.disabled = !state.universeMultiMode || !state.universeMultiSelection.size;
+  [e.universeViewSpatial, e.universeViewList, e.universeViewGrid].forEach(btn => {
+    if (!btn) return;
+    btn.classList.toggle('active', btn.dataset.view === state.universeViewMode);
+  });
+  if (e.universeStage) e.universeStage.dataset.view = state.universeViewMode;
+  if (e.universeGrid) e.universeGrid.classList.toggle('hidden', state.universeViewMode !== 'grid');
+  if (e.universeFallbackLabel) e.universeFallbackLabel.textContent = state.universeViewMode === 'list' ? 'List view' : 'List fallback';
+
+  await ensureUniverseLodData();
+  const raw = buildUniverseEntities({
+    catalog: state.catalog,
+    zoom: state.universeLod,
+    focus: state.universeFocus,
+    intelligence: state.universeIntelligence
+  });
+  const focused = searchToFocus(raw, e.universeSearch?.value || '');
+  state.universeSelectionIds = preserveSelection(state.universeSelectionIds, focused);
+  state.universeEntities = focused;
+
+  const surface = universeSurfaceState({
+    loaded: Boolean(state.catalog?.length) || Boolean(state.universeIntelligence),
+    loading: state.universeLoading,
+    error: state.universeError,
+    entityCount: focused.length,
+    zoom: state.universeLod
+  });
+  if (e.universeStatus) {
+    e.universeStatus.dataset.status = surface.status;
+    e.universeStatus.textContent = `${surface.title} — ${surface.body}`;
+  }
+
   renderUniverseCanvas();
   renderUniverseFallback();
+  renderUniverseGrid();
+  renderUniverseIntelPanel();
+  syncUniverseLanding();
+}
+
+async function ensureUniverseLodData() {
+  const plan = lodLoadPlan({ zoom: state.universeLod, focus: state.universeFocus });
+  if (!plan.intelligenceChain) {
+    state.universeIntelligence = null;
+    return;
+  }
+  if (state.universeIntelligence?.chain === plan.intelligenceChain && state.universeIntelligence?.ok) return;
+  state.universeLoading = true;
+  state.universeError = null;
+  if (e.universeStatus) {
+    e.universeStatus.dataset.status = 'loading';
+    e.universeStatus.textContent = 'Loading bounded Intelligence LOD…';
+  }
+  try {
+    let card = null;
+    try {
+      card = await mcpCall('cairnstone_resume_chain', plan.resumeArgs);
+    } catch {
+      card = await mcpCall('cairnstone_manifest_v2', plan.manifestArgs);
+    }
+    state.universeIntelligence = { ...(card || {}), chain: plan.intelligenceChain, ok: Boolean(card?.ok !== false) };
+  } catch (err) {
+    state.universeError = err;
+    state.universeIntelligence = null;
+  } finally {
+    state.universeLoading = false;
+  }
 }
 
 function selectorActive(type, value) {
   if (type === 'vault') return state.scope.mode === 'vault';
   if (type === 'repo') return state.scope.mode === 'repo' && (state.scope.repos || []).includes(value);
+  if (type === 'intelligence') return false;
   return (state.scope.mode === 'single_chain' || state.scope.mode === 'multi') && (state.scope.chains || []).includes(value);
 }
 
+function applyUniversePanZoom() {
+  if (!e.universeCanvas) return;
+  const t = clampPanZoom(state.universePanZoom);
+  e.universeCanvas.style.transform = `translate(${t.x}px, ${t.y}px) scale(${t.scale})`;
+  e.universeCanvas.style.transformOrigin = 'center center';
+}
+
 function renderUniverseCanvas() {
-  const groups = primaryRepoGroups();
-  const nodes = [];
-  nodes.push({ type: 'vault', value: 'All CairnStone', label: 'All CairnStone', x: 50, y: 50 });
-
-  const repoRadiusX = 35;
-  const repoRadiusY = 34;
-  groups.forEach(([repo, chains], repoIndex) => {
-    const angle = (Math.PI * 2 * repoIndex / Math.max(1, groups.length)) - Math.PI / 2;
-    const rx = 50 + Math.cos(angle) * repoRadiusX;
-    const ry = 50 + Math.sin(angle) * repoRadiusY;
-    nodes.push({ type: 'repo', value: repo, label: repo, x: rx, y: ry });
-    chains.forEach((row, chainIndex) => {
-      const cAngle = angle + ((chainIndex - (chains.length - 1) / 2) * 0.18);
-      const orbit = 8 + Math.min(6, chainIndex * 1.2);
-      const x = clamp(rx + Math.cos(cAngle + Math.PI / 2) * orbit, 5, 95);
-      const y = clamp(ry + Math.sin(cAngle + Math.PI / 2) * orbit, 5, 95);
-      nodes.push({ type: 'chain', value: row.chain, label: row.chain, x, y, headless: !row.canonical_head });
-    });
-  });
-
-  e.universeCanvas.classList.toggle('lod-repos', state.universeLod === 'repos');
+  const nodes = layoutSpatialNodes(state.universeEntities, { zoom: state.universeLod });
   e.universeCanvas.innerHTML = nodes.map(n => {
-    const active = selectorActive(n.type, n.value);
+    const active = selectorActive(n.type, n.value) || state.universeSelectionIds.includes(n.id);
     const multi = n.type === 'chain' && state.universeMultiSelection.has(n.value);
-    return `<button class="universe-node ${n.type} ${active ? 'active' : ''} ${multi ? 'multi-selected' : ''}" type="button" data-utype="${n.type}" data-uvalue="${esc(n.value)}" data-label="${esc(n.label.toLowerCase())}" style="left:${n.x}%;top:${n.y}%">${esc(n.label)}${n.headless ? ' · no HEAD' : ''}</button>`;
+    const size = n.size ? `size-${n.size}` : '';
+    return `<button class="universe-node ${n.type} ${size} ${active ? 'active' : ''} ${multi ? 'multi-selected' : ''} ${n.focused ? 'focused' : ''} ${n.dimmed ? 'dim' : ''}" type="button" data-uid="${esc(n.id)}" data-utype="${esc(n.type)}" data-uvalue="${esc(n.value)}" title="${esc(n.meta || n.label)}" style="left:${Number(n.x) || 50}%;top:${Number(n.y) || 50}%">${esc(n.label)}${n.headless ? ' · no HEAD' : ''}</button>`;
   }).join('');
-
-  e.universeCanvas.querySelectorAll('[data-utype]').forEach(b => b.addEventListener('click', () => universeNodeAction(b.dataset.utype, b.dataset.uvalue)));
-  focusUniverse();
+  e.universeCanvas.querySelectorAll('[data-utype]').forEach(b => b.addEventListener('click', event => {
+    event.stopPropagation();
+    universeEntityAction(b.dataset.utype, b.dataset.uvalue, b.dataset.uid);
+  }));
+  applyUniversePanZoom();
 }
 
 function renderUniverseFallback() {
-  const groups = repoGroups(e.universeSearch.value);
+  const entities = state.universeEntities;
   const selected = state.universeMultiSelection;
-  e.universeFallbackList.innerHTML = `<button class="repo-row ${selectorActive('vault', 'All CairnStone') ? 'active' : ''}" type="button" data-fallback-vault="1"><strong>All CairnStone</strong><span>›</span></button>` +
-    groups.map(([repo, chains]) => `<div class="repo-group">
-      <button class="repo-row ${selectorActive('repo', repo) ? 'active' : ''}" type="button" data-fallback-repo="${repo === '(no repository provenance)' ? '' : esc(repo)}" ${repo === '(no repository provenance)' ? 'disabled' : ''}><span><strong>${esc(repo)}</strong><div class="meta">${chains.length} chains</div></span><span>›</span></button>
-      <div class="chain-list">${chains.map(row => `<button class="chain-row ${selectorActive('chain', row.chain) ? 'active' : ''}" type="button" data-fallback-chain="${esc(row.chain)}"><input tabindex="-1" type="checkbox" ${selected.has(row.chain) ? 'checked' : ''} aria-hidden="true"><span>${esc(row.chain)}${row.canonical_head ? '' : ' · no HEAD'}</span></button>`).join('')}</div>
-    </div>`).join('');
-  e.universeFallbackList.querySelector('[data-fallback-vault]')?.addEventListener('click', () => universeNodeAction('vault', 'All CairnStone'));
-  e.universeFallbackList.querySelectorAll('[data-fallback-repo]').forEach(b => { if (b.dataset.fallbackRepo) b.addEventListener('click', () => universeNodeAction('repo', b.dataset.fallbackRepo)); });
-  e.universeFallbackList.querySelectorAll('[data-fallback-chain]').forEach(b => b.addEventListener('click', () => universeNodeAction('chain', b.dataset.fallbackChain)));
-}
-
-async function universeNodeAction(type, value) {
-  if (type === 'chain' && state.universeMultiMode) {
-    if (state.universeMultiSelection.has(value)) state.universeMultiSelection.delete(value); else state.universeMultiSelection.add(value);
-    renderUniverse();
+  if (!entities.length) {
+    e.universeFallbackList.innerHTML = '<p class="muted">No entities at this LOD.</p>';
     return;
   }
-  if (type === 'vault') await setScope({ mode: 'vault', max_chains: 200 }, 'All CairnStone');
-  else if (type === 'repo') await setScope({ mode: 'repo', repos: [value], max_chains: 200 }, `Repo · ${value}`);
-  else await setScope({ mode: 'single_chain', chains: [value], max_chains: 200 }, value);
+  e.universeFallbackList.innerHTML = entities.map(n => {
+    const active = selectorActive(n.type, n.value) || state.universeSelectionIds.includes(n.id);
+    const multi = n.type === 'chain' && selected.has(n.value);
+    return `<button class="universe-entity-row ${active ? 'active' : ''} ${n.focused ? 'focused' : ''} ${n.dimmed ? 'dim' : ''}" type="button" data-uid="${esc(n.id)}" data-utype="${esc(n.type)}" data-uvalue="${esc(n.value)}">
+      <span><strong>${esc(n.label)}</strong><div class="meta">${esc(n.type)} · ${esc(n.meta || '')}${multi ? ' · multi' : ''}</div></span>
+      <span>›</span>
+    </button>`;
+  }).join('');
+  e.universeFallbackList.querySelectorAll('[data-utype]').forEach(b => b.addEventListener('click', () => universeEntityAction(b.dataset.utype, b.dataset.uvalue, b.dataset.uid)));
 }
 
-function focusUniverse() {
-  const q = e.universeSearch.value.trim().toLowerCase();
-  e.universeCanvas.querySelectorAll('.universe-node').forEach(node => {
-    const match = !q || node.dataset.label.includes(q);
-    node.classList.toggle('dim', Boolean(q) && !match);
-    node.classList.toggle('focused', Boolean(q) && match);
+function renderUniverseGrid() {
+  if (!e.universeGrid) return;
+  const entities = state.universeEntities;
+  if (!entities.length) {
+    e.universeGrid.innerHTML = '<p class="muted">No entities at this LOD.</p>';
+    return;
+  }
+  e.universeGrid.innerHTML = entities.map(n => {
+    const active = selectorActive(n.type, n.value) || state.universeSelectionIds.includes(n.id);
+    return `<button class="universe-grid-card ${active ? 'active' : ''} ${n.focused ? 'focused' : ''} ${n.dimmed ? 'dim' : ''}" type="button" data-uid="${esc(n.id)}" data-utype="${esc(n.type)}" data-uvalue="${esc(n.value)}">
+      <strong>${esc(n.label)}</strong>
+      <span class="meta">${esc(n.type)} · ${esc(n.meta || '')}</span>
+    </button>`;
+  }).join('');
+  e.universeGrid.querySelectorAll('[data-utype]').forEach(b => b.addEventListener('click', () => universeEntityAction(b.dataset.utype, b.dataset.uvalue, b.dataset.uid)));
+}
+
+function renderUniverseIntelPanel() {
+  if (!e.universeIntelPanel) return;
+  const show = state.universeLod === 'intelligence';
+  e.universeIntelPanel.classList.toggle('hidden', !show);
+  if (!show) return;
+  const card = state.universeIntelligence?.start_here || state.universeIntelligence?.canonical_head || null;
+  const chain = state.universeFocus?.chain || state.universeIntelligence?.chain || '—';
+  if (state.universeLoading) {
+    e.universeIntelTitle.textContent = `Loading ${chain}…`;
+    e.universeIntelMeta.textContent = 'Bounded resume_chain detail=start_here (fallback: manifest_v2 orientation).';
+    return;
+  }
+  if (state.universeError) {
+    e.universeIntelTitle.textContent = 'Intelligence LOD failed';
+    e.universeIntelMeta.textContent = String(state.universeError.message || state.universeError);
+    return;
+  }
+  if (!card) {
+    e.universeIntelTitle.textContent = chain;
+    e.universeIntelMeta.textContent = 'No orientation card returned. Scope snapshot remains worker-authoritative.';
+    return;
+  }
+  e.universeIntelTitle.textContent = card.title || chain;
+  const bits = [
+    card.path || state.universeIntelligence?.provenance?.path || null,
+    card.stone_hash || card.hash ? short(card.stone_hash || card.hash) : null,
+    state.universeIntelligence?.authority?.mode || null
+  ].filter(Boolean);
+  e.universeIntelMeta.textContent = `${bits.join(' · ')} · presentation only`;
+}
+
+async function universeEntityAction(type, value, id) {
+  const entity = state.universeEntities.find(x => x.id === id) || { type, value, id: id || `${type}:${value}` };
+  state.universeSelectionIds = preserveSelection([entity.id], state.universeEntities);
+  if (!state.universeSelectionIds.includes(entity.id)) state.universeSelectionIds = [entity.id];
+
+  const mapped = scopeSelectorFromEntity(entity, {
+    multiMode: state.universeMultiMode,
+    multiSelection: state.universeMultiSelection
   });
+
+  if (mapped?.multiToggle) {
+    if (state.universeMultiSelection.has(mapped.multiToggle)) state.universeMultiSelection.delete(mapped.multiToggle);
+    else state.universeMultiSelection.add(mapped.multiToggle);
+    await renderUniverse();
+    return;
+  }
+
+  if (type === 'repo') {
+    state.universeFocus = { zoom: 'repo', type: 'repo', value, repo: value, chain: null };
+    state.universeLod = 'repo';
+    state.universeIntelligence = null;
+    await renderUniverse();
+    if (!state.universeMultiMode) await setScope({ mode: 'repo', repos: [value], max_chains: 200 }, `Repo · ${value}`);
+    return;
+  }
+
+  if (type === 'chain') {
+    const row = catalogRecord(value);
+    const repo = row?.repos?.[0] || state.universeFocus?.repo || null;
+    state.universeFocus = { zoom: 'chain', type: 'chain', value, repo, chain: value };
+    if (state.universeLod === 'vault' || state.universeLod === 'repo') state.universeLod = 'chain';
+    state.universeIntelligence = null;
+    await renderUniverse();
+    if (!state.universeMultiMode) await setScope({ mode: 'single_chain', chains: [value], max_chains: 200 }, value);
+    return;
+  }
+
+  if (type === 'vault') {
+    state.universeFocus = { zoom: 'vault', type: 'vault', value: 'All CairnStone', repo: null, chain: null };
+    state.universeLod = 'vault';
+    state.universeIntelligence = null;
+    await renderUniverse();
+    await setScope({ mode: 'vault', max_chains: 200 }, 'All CairnStone');
+    return;
+  }
+
+  if (type === 'intelligence') {
+    // Focus only — never invent Scope/HEAD from orientation presentation.
+    state.universeLod = 'intelligence';
+    await renderUniverse();
+    return;
+  }
+
+  if (mapped?.mode && !mapped.keepScope) {
+    await setScope(
+      { mode: mapped.mode, chains: mapped.chains, repos: mapped.repos, max_chains: mapped.max_chains || 200 },
+      mapped.label
+    );
+  }
+}
+
+async function setUniverseZoom(next) {
+  const priorIds = state.universeEntities.map(x => x.id);
+  state.universeLod = normalizeZoom(next);
+  if (state.universeLod === 'intelligence') {
+    const chain = state.universeFocus?.chain
+      || state.universeEntities.find(x => x.type === 'chain' && (x.focusedHost || state.universeSelectionIds.includes(x.id)))?.value
+      || state.scope.chains?.[0]
+      || state.catalog[0]?.chain
+      || null;
+    if (!chain) {
+      toast('Select a chain before Intelligence LOD');
+      state.universeLod = 'chain';
+    } else {
+      const row = catalogRecord(chain);
+      state.universeFocus = {
+        zoom: 'intelligence',
+        type: 'chain',
+        value: chain,
+        repo: row?.repos?.[0] || state.universeFocus?.repo || null,
+        chain
+      };
+      state.universeIntelligence = null;
+    }
+  } else if (state.universeLod === 'repo' && !state.universeFocus?.repo) {
+    const repoEnt = state.universeEntities.find(x => x.type === 'repo' && state.universeSelectionIds.includes(x.id))
+      || state.universeEntities.find(x => x.type === 'repo');
+    if (repoEnt) state.universeFocus = { zoom: 'repo', type: 'repo', value: repoEnt.value, repo: repoEnt.value, chain: state.universeFocus?.chain || null };
+  } else if (state.universeLod === 'vault') {
+    state.universeFocus = { ...state.universeFocus, zoom: 'vault', type: 'vault', value: 'All CairnStone' };
+    state.universeIntelligence = null;
+  }
+  await renderUniverse();
+  state.universeSelectionIds = preserveSelection(state.universeSelectionIds.length ? state.universeSelectionIds : priorIds, state.universeEntities);
+  await renderUniverse();
+}
+
+function setUniverseViewMode(mode) {
+  state.universeViewMode = normalizeViewMode(mode);
+  renderUniverse().catch(err => toast(err.message));
+}
+
+function focusUniverseSearch() {
+  state.universeEntities = searchToFocus(
+    buildUniverseEntities({
+      catalog: state.catalog,
+      zoom: state.universeLod,
+      focus: state.universeFocus,
+      intelligence: state.universeIntelligence
+    }),
+    e.universeSearch?.value || ''
+  );
+  renderUniverseCanvas();
+  renderUniverseFallback();
+  renderUniverseGrid();
 }
 
 async function applyUniverseMulti() {
@@ -1353,6 +1597,49 @@ async function applyUniverseMulti() {
   if (!chains.length) return toast('Select at least one chain');
   if (chains.length === 1) await setScope({ mode: 'single_chain', chains, max_chains: 200 }, chains[0]);
   else await setScope({ mode: 'multi', chains, max_chains: 200 }, `${chains.length} chains`);
+}
+
+function bindUniversePanZoom() {
+  const wrap = e.universeCanvasWrap;
+  if (!wrap || wrap.dataset.panBound === '1') return;
+  wrap.dataset.panBound = '1';
+  let dragging = false;
+  let lastX = 0;
+  let lastY = 0;
+  const onDown = ev => {
+    if (ev.target.closest?.('.universe-node')) return;
+    dragging = true;
+    const pt = ev.touches?.[0] || ev;
+    lastX = pt.clientX;
+    lastY = pt.clientY;
+  };
+  const onMove = ev => {
+    if (!dragging) return;
+    const pt = ev.touches?.[0] || ev;
+    const dx = pt.clientX - lastX;
+    const dy = pt.clientY - lastY;
+    lastX = pt.clientX;
+    lastY = pt.clientY;
+    state.universePanZoom = clampPanZoom({
+      ...state.universePanZoom,
+      x: state.universePanZoom.x + dx,
+      y: state.universePanZoom.y + dy
+    });
+    applyUniversePanZoom();
+    if (ev.cancelable) ev.preventDefault();
+  };
+  const onUp = () => { dragging = false; };
+  wrap.addEventListener('pointerdown', onDown);
+  wrap.addEventListener('pointermove', onMove);
+  wrap.addEventListener('pointerup', onUp);
+  wrap.addEventListener('pointercancel', onUp);
+  wrap.addEventListener('pointerleave', onUp);
+  wrap.addEventListener('wheel', ev => {
+    ev.preventDefault();
+    const next = state.universePanZoom.scale * (ev.deltaY < 0 ? 1.08 : 0.92);
+    state.universePanZoom = clampPanZoom({ ...state.universePanZoom, scale: next });
+    applyUniversePanZoom();
+  }, { passive: false });
 }
 
 async function refreshAuthorizations() {
@@ -1529,6 +1816,9 @@ function syncContextBar({ scopePending = false } = {}) {
 function syncUniverseLanding() {
   if (e.universeLandingSummary && e.scopeSummary) e.universeLandingSummary.textContent = e.scopeSummary.textContent;
   if (e.universeLandingAuthority && e.scopeAuthority) e.universeLandingAuthority.textContent = e.scopeAuthority.textContent;
+  if (e.universeLandingLod) {
+    e.universeLandingLod.textContent = `LOD: ${zoomLabel(state.universeLod)} · view: ${normalizeViewMode(state.universeViewMode)}`;
+  }
 }
 
 function syncSettingsPreview() {
@@ -1582,16 +1872,23 @@ e.scopeDefault.addEventListener('click', () => setScope({ mode: 'single_chain', 
 e.universeButton.addEventListener('click', openUniverse);
 e.universeClose.addEventListener('click', closeUniverse);
 e.universeOverlay.addEventListener('click', event => { if (event.target === e.universeOverlay) closeUniverse(); });
-e.universeSearch.addEventListener('input', () => { focusUniverse(); renderUniverseFallback(); });
-e.universeLod.addEventListener('click', () => { state.universeLod = state.universeLod === 'repos' ? 'chains' : 'repos'; renderUniverse(); });
+e.universeSearch.addEventListener('input', () => { focusUniverseSearch(); });
+e.universeLod.addEventListener('click', () => setUniverseZoom(zoomIn(state.universeLod)).catch(err => toast(err.message)));
+if (e.universeZoomIn) e.universeZoomIn.addEventListener('click', () => setUniverseZoom(zoomIn(state.universeLod)).catch(err => toast(err.message)));
+if (e.universeZoomOut) e.universeZoomOut.addEventListener('click', () => setUniverseZoom(zoomOut(state.universeLod)).catch(err => toast(err.message)));
+[e.universeViewSpatial, e.universeViewList, e.universeViewGrid].forEach(btn => {
+  if (!btn) return;
+  btn.addEventListener('click', () => setUniverseViewMode(btn.dataset.view));
+});
 e.universeMulti.addEventListener('click', () => {
   state.universeMultiMode = !state.universeMultiMode;
   if (state.universeMultiMode && !state.universeMultiSelection.size && (state.scopeSnapshot?.chains?.length || 0) <= 12) {
     state.universeMultiSelection = new Set(state.scopeSnapshot.chains.map(x => x.chain));
   }
-  renderUniverse();
+  renderUniverse().catch(err => toast(err.message));
 });
 e.universeApply.addEventListener('click', applyUniverseMulti);
+bindUniversePanZoom();
 document.addEventListener('keydown', event => {
   if (event.key !== 'Escape') return;
   if (!e.universeOverlay.classList.contains('hidden')) return closeUniverse();

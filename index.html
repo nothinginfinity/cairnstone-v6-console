@@ -96,13 +96,14 @@
       <section id="panel-universe" class="panel">
         <div class="card">
           <div class="section-heading">
-            <div><div class="eyebrow">Scope + spatial projection</div><h2>Universe</h2></div>
-            <button id="universeButton" class="primary compact-button" type="button">Open Bird's Eye</button>
+            <div><div class="eyebrow">Semantic zoom · Scope projection</div><h2>Universe</h2></div>
+            <button id="universeButton" class="primary compact-button" type="button">Open Universe</button>
           </div>
-          <p class="muted small">Universe is navigation and projection only. Position, clustering, and animation never create graph edges or accepted-state authority. Full Scope tools open from the context bar or below.</p>
+          <p class="muted small">Universe v2 projects Vault → Repo → Chain → Intelligence. Spatial layout, list, and grid share the same Scope selectors. Position and clustering never create graph edges or accepted-state authority.</p>
           <div class="universe-landing-status">
             <strong id="universeLandingSummary">Loading Scope…</strong>
             <span id="universeLandingAuthority" class="muted small">Resolving accepted chain HEAD snapshot.</span>
+            <span id="universeLandingLod" class="muted small">LOD: Vault · view: spatial</span>
           </div>
           <div class="invite-actions">
             <button id="universeOpenScope" class="secondary" type="button">Adjust Scope</button>
@@ -396,7 +397,7 @@ grok-bot:cairnstone-v6</textarea></label>
       </section>
       </main>
 
-      <footer>V7.7.9c Console · Chat · Work · Universe · Inbox · More · Scope is navigation/retrieval context, never synthetic global authority · accepted state remains in CairnStone</footer>
+      <footer>V7.7.9d Console · Chat · Work · Universe · Inbox · More · Scope is navigation/retrieval context, never synthetic global authority · accepted state remains in CairnStone</footer>
     </div>
 
     <nav class="nav-bottom" aria-label="Primary mobile">
@@ -510,20 +511,43 @@ grok-bot:cairnstone-v6</textarea></label>
   <div id="universeOverlay" class="universe-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="universeTitle">
     <div class="universe-shell">
       <header class="universe-header">
-        <div><div class="eyebrow">Bird's Eye / Universe</div><h2 id="universeTitle">CairnStone Scope</h2></div>
+        <div>
+          <div class="eyebrow">Universe v2 · semantic zoom</div>
+          <h2 id="universeTitle">CairnStone Scope</h2>
+        </div>
         <button id="universeClose" class="secondary" type="button">Close</button>
       </header>
       <div class="universe-controls">
-        <input id="universeSearch" type="search" placeholder="Search to focus...">
-        <button id="universeLod" class="secondary" type="button">LOD: Repos</button>
+        <input id="universeSearch" type="search" placeholder="Search to focus…" autocomplete="off">
+        <div class="universe-zoom-group" role="group" aria-label="Semantic zoom">
+          <button id="universeZoomOut" class="secondary" type="button" title="Zoom out">−</button>
+          <button id="universeLod" class="secondary" type="button">LOD: Vault</button>
+          <button id="universeZoomIn" class="secondary" type="button" title="Zoom in">+</button>
+        </div>
+        <div class="universe-view-group" role="group" aria-label="View mode">
+          <button id="universeViewSpatial" class="secondary universe-view-btn active" type="button" data-view="spatial">Spatial</button>
+          <button id="universeViewList" class="secondary universe-view-btn" type="button" data-view="list">List</button>
+          <button id="universeViewGrid" class="secondary universe-view-btn" type="button" data-view="grid">Grid</button>
+        </div>
         <button id="universeMulti" class="secondary" type="button">Multi-select</button>
         <button id="universeApply" class="primary compact-button" type="button" disabled>Apply multi</button>
       </div>
-      <div class="universe-legend muted small">Position, proximity, size, clustering, and animation are visualization only. Repository membership comes from catalog provenance; no synthetic global HEAD or permanent graph edge is created here.</div>
-      <div id="universeCanvas" class="universe-canvas" aria-label="Spatial repository and chain projection"></div>
-      <div id="universeFallback" class="universe-fallback">
-        <div class="eyebrow">List fallback</div>
-        <div id="universeFallbackList" class="scope-catalog"></div>
+      <div id="universeStatus" class="universe-status muted small" aria-live="polite">Loading…</div>
+      <div class="universe-legend muted small">Position, proximity, size, clustering, and animation are visualization only. Repository membership comes from catalog provenance; no synthetic global HEAD or permanent graph edge is created here. Intelligence LOD loads one bounded orientation card via existing read APIs.</div>
+      <div id="universeStage" class="universe-stage" data-view="spatial">
+        <div id="universeCanvasWrap" class="universe-canvas-wrap">
+          <div id="universeCanvas" class="universe-canvas" aria-label="Spatial Vault → Repo → Chain → Intelligence projection"></div>
+        </div>
+        <div id="universeFallback" class="universe-fallback">
+          <div class="eyebrow" id="universeFallbackLabel">List fallback</div>
+          <div id="universeFallbackList" class="scope-catalog universe-entity-list"></div>
+        </div>
+        <div id="universeGrid" class="universe-grid hidden" aria-label="Grid fallback"></div>
+      </div>
+      <div id="universeIntelPanel" class="universe-intel-panel hidden" aria-live="polite">
+        <div class="eyebrow">Intelligence (bounded)</div>
+        <strong id="universeIntelTitle">—</strong>
+        <p id="universeIntelMeta" class="muted small">Orientation from resume_chain / manifest_v2 — not a synthetic HEAD.</p>
       </div>
     </div>
   </div>
