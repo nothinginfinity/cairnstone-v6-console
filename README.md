@@ -2,6 +2,10 @@
 
 A thin, provider-neutral browser client for the live CairnStone V7 runtime.
 
+## V7.7.9b Chat + contextual evidence
+
+Chat is the grounded-chat home on the 9a shell: Answer Depth stays prominent; provider/model and related runtime knobs live in a **Chat config** sheet; grounded answers open an **Evidence** drawer bound to the same `response_id`. Presentation only — no new accepted-state authority. See `docs/V7_7_9B_CHAT_CONTEXTUAL_EVIDENCE.md`.
+
 ## V7.7.9a Responsive shell
 
 Primary navigation is **Chat · Work · Universe · Inbox · More** (mobile bottom nav + desktop rail), with a compact context bar for Scope / actor / session / runtime. Dense 9-peer-tab chrome is gone; capabilities remain reachable via primary destinations and Inbox/More subnav. Presentation only — no new accepted-state authority. See `docs/V7_7_9A_RESPONSIVE_SHELL.md`.
@@ -73,7 +77,7 @@ Then open `http://localhost:8080`.
 Unit tests:
 
 ```bash
-node --test answer-depth.test.js shell-nav.test.js
+node --test answer-depth.test.js shell-nav.test.js chat-evidence.test.js
 ```
 
 ## Operator setup
