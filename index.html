@@ -49,10 +49,10 @@
         <button id="healthButton" class="visually-hidden" type="button" tabindex="-1" aria-hidden="true">Health</button>
       </header>
 
-      <div id="inboxSubnav" class="subnav hidden" role="tablist" aria-label="Inbox surfaces">
-        <button class="subnav-item active" data-panel="inbox" type="button">Inbox</button>
-        <button class="subnav-item" data-panel="handoff" type="button">Handoff</button>
-        <button class="subnav-item" data-panel="activity" type="button">Activity</button>
+      <div id="inboxSubnav" class="subnav hidden" role="tablist" aria-label="Communications: Inbox, Handoff, Activity">
+        <button class="subnav-item active" data-panel="inbox" type="button" title="Inbox — Read correspondence">Inbox</button>
+        <button class="subnav-item" data-panel="handoff" type="button" title="Handoff — Dispatch structured handoff">Handoff</button>
+        <button class="subnav-item" data-panel="activity" type="button" title="Activity — Cross-actor activity">Activity</button>
       </div>
       <div id="moreSubnav" class="subnav hidden" role="tablist" aria-label="More surfaces">
         <button class="subnav-item" data-panel="stones" type="button">Stones</button>
@@ -122,18 +122,34 @@
         </div>
       </section>
       <section id="panel-inbox" class="panel">
-        <div class="card">
-          <div class="section-heading"><div><div class="eyebrow">Native AC1</div><h2>Inbox</h2></div><button id="refreshInbox" class="secondary" type="button">Refresh</button></div>
-          <div class="scope-caveat">Inbox is <strong>not</strong> auto-filtered by Scope: compact AC1 inbox metadata does not carry an authoritative chain association. Filtering would require inventing metadata or marking messages read.</div>
+        <div class="card comms-hub-card">
+          <div class="section-heading">
+            <div>
+              <div class="eyebrow" id="inboxHubEyebrow">AC1 correspondence</div>
+              <h2>Inbox</h2>
+            </div>
+            <button id="refreshInbox" class="secondary" type="button">Refresh</button>
+          </div>
+          <p id="inboxHubBlurb" class="muted small comms-hub-blurb">Read immutable messages for one recipient. Reading may update delivery status only; the message stone stays immutable. Correspondence grants no execution authority.</p>
+          <div id="inboxHubScopeNote" class="scope-caveat">Inbox is <strong>not</strong> auto-filtered by Scope: compact AC1 inbox metadata does not carry an authoritative chain association. Filtering would require inventing metadata or marking messages read.</div>
+          <p class="muted small comms-identity-note">Identity = immutable <code>message_id</code> / <code>stone_hash</code> from the runtime — Console does not re-key correspondence.</p>
           <label><span>Recipient actor</span><input id="inboxActor" value="console:jared" autocomplete="off"></label>
-          <div id="inboxList" class="message-list"><p class="muted">Refresh to load correspondence.</p></div>
+          <label class="check-row"><input id="inboxGroupThreads" type="checkbox"><span>Group by thread</span></label>
+          <div id="inboxList" class="message-list" aria-live="polite"><p class="muted">Refresh to load correspondence.</p></div>
         </div>
         <div class="card"><div class="eyebrow">Message reader</div><h2 id="messageTitle">No message selected</h2><div id="messageMeta" class="chips"></div><pre id="messageContent" class="code-block wrap">Select a message to read it. Reading mutates delivery state only; the message stone remains immutable.</pre></div>
       </section>
       <section id="panel-handoff" class="panel">
-        <div class="card">
-          <div class="eyebrow">Structured AC1 dispatch</div><h2>Send handoff</h2>
-          <p class="muted small">Creates immutable correspondence. It transports intent and provenance but grants no execution, mutation, or accepted-state authority.</p>
+        <div class="card comms-hub-card">
+          <div class="section-heading">
+            <div>
+              <div class="eyebrow" id="handoffHubEyebrow">Structured AC1 dispatch</div>
+              <h2>Handoff</h2>
+            </div>
+            <span class="comms-intent-pill" title="Compose only — no execution authority">Dispatch</span>
+          </div>
+          <p id="handoffHubBlurb" class="muted small comms-hub-blurb">Creates immutable correspondence that transports intent and provenance. It grants no execution, mutation, or accepted-state authority.</p>
+          <div id="handoffHubScopeNote" class="scope-caveat">Handoff association is explicit: choose one exact participating chain from the current Scope (AC1 carries one chain field).</div>
           <label><span>Associated chain <small>(must be an exact participating chain)</small></span><select id="handoffChain"></select></label>
           <label><span>Recipients <small>(comma-separated actor IDs)</small></span><input id="handoffTo" placeholder="claude:cairnstone-v7"></label>
           <label><span>Subject</span><input id="handoffSubject" value="CairnStone V7 handoff"></label>
@@ -147,15 +163,22 @@
         </div>
       </section>
       <section id="panel-activity" class="panel">
-        <div class="card">
-          <div class="section-heading"><div><div class="eyebrow">Combined AC1 view</div><h2>Recent activity</h2></div><button id="activityRefresh" class="secondary" type="button">Refresh</button></div>
-          <div class="scope-caveat">Activity uses real recipient/thread metadata only. It is not silently filtered by the global Scope because compact AC1 listing metadata does not expose a trustworthy chain field.</div>
+        <div class="card comms-hub-card">
+          <div class="section-heading">
+            <div>
+              <div class="eyebrow" id="activityHubEyebrow">Combined AC1 view</div>
+              <h2>Activity</h2>
+            </div>
+            <button id="activityRefresh" class="secondary" type="button">Refresh</button>
+          </div>
+          <p id="activityHubBlurb" class="muted small comms-hub-blurb">Aggregated recent correspondence across actor inboxes you query. Same AC1 stones — presentation grouping only.</p>
+          <div id="activityHubScopeNote" class="scope-caveat">Activity uses real recipient/thread metadata only. It is not silently filtered by the global Scope because compact AC1 listing metadata does not expose a trustworthy chain field.</div>
           <label><span>Actor IDs <small>(comma-separated; each inbox is queried independently)</small></span><input id="activityActors" placeholder="console:jared, claude:cairnstone-v7"></label>
           <div class="two-col compact">
             <label><span>Filter</span><select id="activityFilter"><option value="all">All</option><option value="handoff">Handoffs only</option><option value="message">Messages/other</option></select></label>
             <label class="check-row"><input id="activityGroupThreads" type="checkbox" checked><span>Group by thread</span></label>
           </div>
-          <div id="activityList" class="message-list"><p class="muted">Refresh to load recent activity across the actor IDs above.</p></div>
+          <div id="activityList" class="message-list" aria-live="polite"><p class="muted">Refresh to load recent activity across the actor IDs above.</p></div>
         </div>
       </section>
       <section id="panel-stones" class="panel">
@@ -174,34 +197,69 @@
         </div>
       </section>
       <section id="panel-code" class="panel">
-        <div class="card code-session-card">
+        <div class="card code-session-card work-surface-card">
           <div class="section-heading">
-            <div><div class="eyebrow">V7.7.7f Persistent Code Mode · Work</div><h2>Code Session</h2></div>
+            <div><div class="eyebrow">Work · Persistent Code Mode</div><h2>Code Session</h2></div>
             <button id="codeLoad" class="secondary" type="button">Load console view</button>
           </div>
-          <p class="muted small">Operator surface for one Code Session (not a single model chat). Workspace capability stays in this browser session only — never stoned. Console grants no new authority.</p>
-          <label><span>Code Session ID</span><input id="codeSessionId" autocomplete="off" placeholder="cs:…"></label>
-          <label><span>Workspace capability</span><input id="codeWorkspaceCap" type="password" autocomplete="off" placeholder="workspace capability (sessionStorage only)"></label>
+          <p id="codeHonesty" class="muted small">Work is the home for one Code Session (not a model chat). Workspace capability stays in this browser session only — never stoned. Console grants no new authority.</p>
+          <div class="work-bind">
+            <label><span>Code Session ID</span><input id="codeSessionId" autocomplete="off" placeholder="cs:…"></label>
+            <label><span>Workspace capability</span><input id="codeWorkspaceCap" type="password" autocomplete="off" placeholder="workspace capability (sessionStorage only)"></label>
+          </div>
+          <div id="codeEmptyState" class="work-empty-state" aria-live="polite">
+            <strong>No Code Session loaded</strong>
+            <p class="muted small">Enter a Code Session ID and workspace capability, then load the console view. First paint centers the current task; details expand in place. Runtime identity stays on the worker.</p>
+          </div>
           <div id="codeSurface" class="code-surface hidden">
-            <div class="code-block-label">PROJECT</div>
-            <div id="codeProjectName" class="code-block-value">—</div>
-            <div class="code-block-label">PERSISTENT CODE SESSION</div>
-            <div id="codeSessionLifecycle" class="code-block-value">—</div>
-            <div class="code-block-label">Current task</div>
-            <div id="codeCurrentTask" class="code-block-value">—</div>
-            <div class="code-block-label">Actors</div>
-            <div id="codeActors" class="code-actors">—</div>
-            <div class="code-block-label">Tests</div>
-            <div id="codeTests" class="code-block-value">—</div>
-            <div class="code-block-label">Working tree</div>
-            <div id="codeWorkingTree" class="code-block-value">—</div>
+            <div class="work-task-hero" aria-label="Current task">
+              <div class="work-task-kicker">Current task</div>
+              <div id="codeCurrentTask" class="work-task-title">—</div>
+              <div class="work-task-meta">
+                <span id="codeSessionLifecycle" class="work-pill">—</span>
+                <span id="codeProjectName" class="work-pill work-pill-muted">—</span>
+              </div>
+            </div>
             <div id="codeMeta" class="chips"></div>
-            <div class="code-actions invite-actions">
+            <div class="code-actions invite-actions" aria-label="Operator actions">
               <button id="codeInviteAgent" class="secondary" type="button" disabled>Invite Agent</button>
               <button id="codeSendMessage" class="secondary" type="button" disabled>Send Message</button>
               <button id="codeCheckpoints" class="secondary" type="button" disabled>Checkpoints</button>
               <button id="codeViewWork" class="secondary" type="button" disabled>View Work</button>
               <button id="codeProposeMerge" class="primary compact-button" type="button" disabled>Propose / Merge</button>
+            </div>
+            <div class="work-disclosure" id="codeDisclosure">
+              <details class="work-details">
+                <summary>Actors <span id="codeActorsSummary" class="work-summary-hint"></span></summary>
+                <div id="codeActors" class="code-actors">—</div>
+                <div id="codeLeases" class="muted small work-inline-note"></div>
+              </details>
+              <details class="work-details">
+                <summary>Tests <span id="codeTestsSummary" class="work-summary-hint"></span></summary>
+                <div id="codeTests" class="code-block-value">—</div>
+              </details>
+              <details class="work-details">
+                <summary>Working tree <span id="codeWorkingTreeSummary" class="work-summary-hint"></span></summary>
+                <div id="codeWorkingTree" class="code-block-value">—</div>
+              </details>
+              <details class="work-details">
+                <summary>Checkpoints <span id="codeCheckpointsSummary" class="work-summary-hint"></span></summary>
+                <div id="codeCheckpointsHint" class="muted small">Use <strong>Checkpoints</strong> for the authoritative list from <code>cairnstone_code_checkpoint_list</code>.</div>
+              </details>
+              <details class="work-details">
+                <summary>Environment / sandbox <span id="codeEnvSummary" class="work-summary-hint"></span></summary>
+                <div id="codeEnvironment" class="code-block-value">—</div>
+                <div id="codeSandbox" class="muted small work-inline-note"></div>
+              </details>
+              <details class="work-details">
+                <summary>Receipts <span id="codeReceiptsSummary" class="work-summary-hint"></span></summary>
+                <div id="codeReceipts" class="muted small">None in snapshot unless reported by console view.</div>
+              </details>
+              <details class="work-details">
+                <summary>Action catalog <span class="work-summary-hint">existing APIs only</span></summary>
+                <div id="codeActionCatalog" class="work-action-catalog"></div>
+                <p class="muted small">Invite = V7.7.6 invite plane; Propose/Merge = <code>cairnstone_workspace_propose_accept</code> only. No silent Chat/Authorize merge.</p>
+              </details>
             </div>
           </div>
           <div id="codeProposeForm" class="code-propose-form hidden">
@@ -338,7 +396,7 @@ grok-bot:cairnstone-v6</textarea></label>
       </section>
       </main>
 
-      <footer>V7.7.9b Console · Chat · Work · Universe · Inbox · More · Scope is navigation/retrieval context, never synthetic global authority · accepted state remains in CairnStone</footer>
+      <footer>V7.7.9c Console · Chat · Work · Universe · Inbox · More · Scope is navigation/retrieval context, never synthetic global authority · accepted state remains in CairnStone</footer>
     </div>
 
     <nav class="nav-bottom" aria-label="Primary mobile">
