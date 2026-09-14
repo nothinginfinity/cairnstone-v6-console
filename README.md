@@ -2,6 +2,10 @@
 
 A thin, provider-neutral browser client for the live CairnStone V7 runtime.
 
+## V7.7.9f Cross-device UX acceptance
+
+V7.7.9 family closes with **9f**: live mobile (~390×844) + desktop (≥1280) acceptance, keyboard/focus + `prefers-reduced-motion`, loading/empty/error honesty, legacy reachability via More/Inbox, and authority/mutation boundary verification (navigation/Saved Views/Universe zoom do not call `set_head` / `set_path_head`; Authorize remains V7.3). See `docs/V7_7_9F_CROSS_DEVICE_ACCEPTANCE.md`.
+
 ## V7.7.9e Progressive disclosure + Saved Views
 
 Operators get stepped disclosure on Scope, Stones, Evidence, Work, and Authorize (task-first first paint; advanced/raw behind clear steps). **Saved Views** (context bar → Views) store selectors and presentation prefs in browser localStorage only — opening always re-resolves Scope via `cairnstone_resolve_scope` and never freezes HEADs as accepted truth. See `docs/V7_7_9E_SAVED_VIEWS_PROGRESSIVE_DISCLOSURE.md`.
@@ -89,7 +93,7 @@ Then open `http://localhost:8080`.
 Unit tests:
 
 ```bash
-node --test answer-depth.test.js shell-nav.test.js chat-evidence.test.js work-surface.test.js comms-hub.test.js universe-v2.test.js saved-views.test.js progressive-disclosure.test.js
+node --test answer-depth.test.js shell-nav.test.js chat-evidence.test.js work-surface.test.js comms-hub.test.js universe-v2.test.js saved-views.test.js progressive-disclosure.test.js ux-acceptance.test.js
 ```
 
 ## Operator setup

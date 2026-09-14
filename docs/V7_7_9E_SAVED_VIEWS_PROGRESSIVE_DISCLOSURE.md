@@ -69,7 +69,7 @@ node --test answer-depth.test.js shell-nav.test.js chat-evidence.test.js work-su
 
 ## Intentional follow-ons
 
-- **9f** Full cross-device UX acceptance
+- ~~**9f** Full cross-device UX acceptance~~ → see `docs/V7_7_9F_CROSS_DEVICE_ACCEPTANCE.md`
 - Optional export/import of Saved Views (still client-only; still selectors only)
 - Deeper Evidence drawer ↔ More Evidence section sync of disclosure prefs
 - Live smoke: save view on Universe list + Scope repo mode → open after HEAD move → freshness banner
