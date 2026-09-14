@@ -22,6 +22,15 @@ import {
   evidenceDrawerModel,
   evidenceDrawerSummary
 } from './chat-evidence.js';
+import {
+  commsHubBanner,
+  commsListState,
+  filterActivityItems,
+  groupMessagesByThread,
+  handoffChainAllowed,
+  normalizeMessageRow,
+  sortMessagesNewestFirst
+} from './comms-hub.js';
 
 const DEFAULT_RUNTIME = 'https://cairnstone-v6.jaredtechfit.workers.dev/mcp';
 const DEFAULT_CHAIN = 'cairnstone-v6-project-memory';
@@ -78,6 +87,7 @@ const e = {
   contextScopeBtn: $('contextScopeBtn'), contextActorBtn: $('contextActorBtn'), contextSessionBtn: $('contextSessionBtn'), contextRuntimeBtn: $('contextRuntimeBtn'),
   contextScopeLabel: $('contextScopeLabel'), contextActorLabel: $('contextActorLabel'), contextSessionLabel: $('contextSessionLabel'),
   inboxSubnav: $('inboxSubnav'), moreSubnav: $('moreSubnav'),
+  inboxGroupThreads: $('inboxGroupThreads'),
   scopeSheet: $('scopeSheet'), runtimeSheet: $('runtimeSheet'), chatConfigSheet: $('chatConfigSheet'), evidenceDrawer: $('evidenceDrawer'),
   settingsOpenSheet: $('settingsOpenSheet'), settingsActorPreview: $('settingsActorPreview'), settingsRuntimePreview: $('settingsRuntimePreview'),
   runtimeSheetRecheck: $('runtimeSheetRecheck'),
@@ -976,33 +986,56 @@ async function refreshInbox() {
   const recipient = e.inboxActor.value.trim();
   if (!recipient) return toast('Enter an inbox actor ID');
   busy(e.refreshInbox, true, 'Loading…');
+  const loading = commsListState({ loading: true, surface: 'inbox' });
+  e.inboxList.innerHTML = `<p class="muted">${esc(loading.message)}</p>`;
   try {
     const r = await mcpCall('cairnstone_get_inbox', { recipient_id: recipient, limit: 100 });
     state.inbox = r.messages || [];
     renderInbox();
     toast(`${state.inbox.length} messages`);
   } catch (err) {
-    e.inboxList.innerHTML = `<p class="muted">${esc(err.message)}</p>`;
+    const st = commsListState({ error: err, surface: 'inbox' });
+    e.inboxList.innerHTML = `<p class="muted">${esc(st.message)}</p>`;
     toast(err.message);
   } finally {
     busy(e.refreshInbox, false, 'Refresh');
   }
 }
 
+function messageRowHtml(row) {
+  const unread = row.unread ? '● ' : '';
+  const recipient = row.recipient_id ? `to ${esc(row.recipient_id)} · ` : '';
+  return `<div class="message-row-head"><span class="comms-intent-badge" data-intent="${esc(row.intent)}">${esc(row.intentLabel)}</span><strong>${unread}${esc(row.subject)}</strong></div><div class="meta">${recipient}from ${esc(row.sender_id)} · ${esc(row.priority)} · ${esc(row.status || '')}</div><div class="meta">${esc(short(row.stone_hash))}${row.message_id ? ` · ${esc(short(row.message_id))}` : ''}</div>`;
+}
+
 function renderInbox() {
-  if (!state.inbox.length) {
-    e.inboxList.innerHTML = '<p class="muted">No messages.</p>';
+  const empty = commsListState({ count: state.inbox.length, surface: 'inbox' });
+  if (empty.status === 'empty') {
+    e.inboxList.innerHTML = `<p class="muted">${esc(empty.message)}</p>`;
     return;
   }
   e.inboxList.innerHTML = '';
-  state.inbox.forEach(m => {
+  const items = sortMessagesNewestFirst(state.inbox);
+  const appendRow = (m) => {
+    const row = normalizeMessageRow(m, { surface: 'inbox' });
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'message-item';
-    b.innerHTML = `<strong>${esc(m.subject || '(no subject)')}</strong><div class="meta">${esc(m.sender_id || 'unknown')} · ${esc(m.status || '')} · ${esc(m.priority || 'normal')}</div><div class="meta">${esc(short(m.stone_hash))}</div>`;
+    b.innerHTML = messageRowHtml(row);
     b.addEventListener('click', () => readMessage(m));
     e.inboxList.append(b);
-  });
+  };
+  if (e.inboxGroupThreads?.checked) {
+    for (const group of groupMessagesByThread(items)) {
+      const h = document.createElement('div');
+      h.className = 'list-item thread-group';
+      h.innerHTML = `<strong>${esc(group.thread_id)}</strong><div class="meta">${group.count} message${group.count === 1 ? '' : 's'} · presentation grouping only</div>`;
+      e.inboxList.append(h);
+      group.messages.forEach(appendRow);
+    }
+  } else {
+    items.forEach(appendRow);
+  }
 }
 
 async function readMessage(m) {
@@ -1010,7 +1043,7 @@ async function readMessage(m) {
   try {
     const r = await mcpCall('cairnstone_read_message', { recipient_id: e.inboxActor.value.trim(), message_id: m.message_id });
     e.messageTitle.textContent = r.metadata?.subject || m.subject || 'Message';
-    e.messageMeta.innerHTML = [['from', r.metadata?.from || m.sender_id], ['intent', r.metadata?.intent || m.intent], ['thread', r.thread_id], ['stone', short(r.stone_hash)], ['scope', r.mutation_scope]].map(([k, v]) => chip(`${k}: ${v || '—'}`)).join('');
+    e.messageMeta.innerHTML = [['from', r.metadata?.from || m.sender_id], ['intent', r.metadata?.intent || m.intent], ['thread', r.thread_id], ['message_id', m.message_id], ['stone', short(r.stone_hash)], ['scope', r.mutation_scope], ['exec_authority', 'none']].map(([k, v]) => chip(`${k}: ${v || '—'}`)).join('');
     e.messageContent.textContent = pretty(r.content);
     await refreshInbox();
   } catch (err) {
@@ -1024,7 +1057,9 @@ async function handoff() {
   const task = e.handoffTask.value.trim();
   const chain = e.handoffChain.value.trim();
   if (!chain || !to.length || !task) return toast('Associated chain, recipients, and task are required');
-  if (!(state.scopeSnapshot?.chains || []).some(x => x.chain === chain)) return toast('Handoff chain must be an exact participating chain in the current Scope');
+  if (!handoffChainAllowed(chain, state.scopeSnapshot?.chains || [])) {
+    return toast('Handoff chain must be an exact participating chain in the current Scope');
+  }
 
   const a = {
     from: e.actorId.value.trim(),
@@ -1070,6 +1105,8 @@ async function refreshActivity() {
   const actors = (e.activityActors.value || '').split(',').map(s => s.trim()).filter(Boolean);
   if (!actors.length) actors.push(e.actorId.value.trim());
   busy(e.activityRefresh, true, 'Loading…');
+  const loading = commsListState({ loading: true, surface: 'activity' });
+  e.activityList.innerHTML = `<p class="muted">${esc(loading.message)}</p>`;
   try {
     const results = await Promise.all(actors.map(async actor => {
       try {
@@ -1083,7 +1120,8 @@ async function refreshActivity() {
     renderActivity();
     toast(`${state.activity.length} activity item${state.activity.length === 1 ? '' : 's'} across ${actors.length} actor${actors.length === 1 ? '' : 's'}`);
   } catch (err) {
-    e.activityList.innerHTML = `<p class="muted">${esc(err.message)}</p>`;
+    const st = commsListState({ error: err, surface: 'activity' });
+    e.activityList.innerHTML = `<p class="muted">${esc(st.message)}</p>`;
     toast(err.message);
   } finally {
     busy(e.activityRefresh, false, 'Refresh');
@@ -1091,29 +1129,21 @@ async function refreshActivity() {
 }
 
 function renderActivity() {
-  let items = (state.activity || []).slice();
-  const filter = e.activityFilter.value;
-  if (filter === 'handoff') items = items.filter(m => m.intent === 'handoff');
-  else if (filter === 'message') items = items.filter(m => m.intent !== 'handoff');
-  items.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
-  if (!items.length) {
-    e.activityList.innerHTML = '<p class="muted">No activity matches.</p>';
+  let items = filterActivityItems(state.activity || [], e.activityFilter.value);
+  items = sortMessagesNewestFirst(items);
+  const empty = commsListState({ count: items.length, surface: 'activity' });
+  if (empty.status === 'empty') {
+    e.activityList.innerHTML = `<p class="muted">${esc(empty.message)}</p>`;
     return;
   }
   e.activityList.innerHTML = '';
   if (e.activityGroupThreads.checked) {
-    const groups = new Map();
-    items.forEach(m => {
-      const key = m.thread_id || '(no thread)';
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key).push(m);
-    });
-    for (const [thread, messages] of groups) {
+    for (const group of groupMessagesByThread(items)) {
       const h = document.createElement('div');
-      h.className = 'list-item';
-      h.innerHTML = `<strong>${esc(thread)}</strong><div class="meta">${messages.length} message${messages.length === 1 ? '' : 's'}</div>`;
+      h.className = 'list-item thread-group';
+      h.innerHTML = `<strong>${esc(group.thread_id)}</strong><div class="meta">${group.count} message${group.count === 1 ? '' : 's'} · presentation grouping only</div>`;
       e.activityList.append(h);
-      messages.forEach(m => e.activityList.append(activityItemEl(m)));
+      group.messages.forEach(m => e.activityList.append(activityItemEl(m)));
     }
   } else {
     items.forEach(m => e.activityList.append(activityItemEl(m)));
@@ -1121,11 +1151,11 @@ function renderActivity() {
 }
 
 function activityItemEl(m) {
+  const row = normalizeMessageRow(m, { surface: 'activity' });
   const b = document.createElement('button');
   b.type = 'button';
   b.className = 'message-item';
-  const unread = m.status !== 'read';
-  b.innerHTML = `<strong>${unread ? '● ' : ''}${esc(m.subject || '(no subject)')}</strong><div class="meta">to ${esc(m.for || '')} · from ${esc(m.sender_id || 'unknown')} · ${esc(m.intent || 'message')} · ${esc(m.priority || 'normal')} · ${esc(m.status || '')}</div><div class="meta">${esc(short(m.stone_hash))}</div>`;
+  b.innerHTML = messageRowHtml(row);
   b.addEventListener('click', () => readActivityMessage(m));
   return b;
 }
@@ -1436,6 +1466,24 @@ function panel(name) {
   });
   if (primary === 'more') syncSettingsPreview();
   if (panelName === 'universe') syncUniverseLanding();
+  if (primary === 'inbox') syncCommsHub(panelName);
+}
+
+function syncCommsHub(panelName) {
+  const banner = commsHubBanner(panelName);
+  const map = {
+    inbox: { eyebrow: 'inboxHubEyebrow', blurb: 'inboxHubBlurb', scope: 'inboxHubScopeNote' },
+    handoff: { eyebrow: 'handoffHubEyebrow', blurb: 'handoffHubBlurb', scope: 'handoffHubScopeNote' },
+    activity: { eyebrow: 'activityHubEyebrow', blurb: 'activityHubBlurb', scope: 'activityHubScopeNote' }
+  };
+  const ids = map[panelName];
+  if (!ids) return;
+  const eyebrow = $(ids.eyebrow);
+  const blurb = $(ids.blurb);
+  const scope = $(ids.scope);
+  if (eyebrow) eyebrow.textContent = banner.eyebrow;
+  if (blurb) blurb.textContent = banner.blurb;
+  if (scope) scope.textContent = banner.scopeNote;
 }
 
 function navigatePrimary(nav) {
@@ -1510,6 +1558,7 @@ document.querySelectorAll('[data-close-sheet]').forEach(btn => {
 e.refreshModels.addEventListener('click', loadCapabilities);
 e.delegateButton.addEventListener('click', askCurrentScope);
 e.refreshInbox.addEventListener('click', refreshInbox);
+if (e.inboxGroupThreads) e.inboxGroupThreads.addEventListener('change', renderInbox);
 e.handoffButton.addEventListener('click', handoff);
 e.copyResult.addEventListener('click', () => copy(groundedAnswerText(state.lastResult) || state.lastResult?.answer || state.lastResult?.output?.text || ''));
 e.copyEvidence.addEventListener('click', () => copy(JSON.stringify({ scope_snapshot: state.scopeSnapshot, result: state.lastResult }, null, 2)));

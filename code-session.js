@@ -1,10 +1,17 @@
+import {
+  workFirstPaintModel,
+  workHonestyLine,
+  workSurfaceState
+} from './work-surface.js';
+
 const CONTINUATION_PROMPT = 'Check your CairnStone inbox and continue the Code Session.';
 const CAP_STORE_KEY = 'cs.workspaceCapability';
 const SESSION_STORE_KEY = 'cs.codeSessionId';
 
 /**
- * V7.7.7f Persistent Code Mode Console panel.
+ * V7.7.7f Persistent Code Mode Console panel — evolved as V7.7.9c Work surface.
  * Centered on a Code Session (not one model chat). Invite Agent reuses V7.7.6 mint.
+ * Task-first progressive disclosure; runtime data remains worker authority.
  */
 export function initCodeSessionPanel(api) {
   const {
@@ -23,12 +30,26 @@ export function initCodeSessionPanel(api) {
     workspaceCap: document.getElementById('codeWorkspaceCap'),
     load: document.getElementById('codeLoad'),
     surface: document.getElementById('codeSurface'),
+    emptyState: document.getElementById('codeEmptyState'),
+    honesty: document.getElementById('codeHonesty'),
     projectName: document.getElementById('codeProjectName'),
     sessionLifecycle: document.getElementById('codeSessionLifecycle'),
     currentTask: document.getElementById('codeCurrentTask'),
     actors: document.getElementById('codeActors'),
+    actorsSummary: document.getElementById('codeActorsSummary'),
     tests: document.getElementById('codeTests'),
+    testsSummary: document.getElementById('codeTestsSummary'),
     workingTree: document.getElementById('codeWorkingTree'),
+    workingTreeSummary: document.getElementById('codeWorkingTreeSummary'),
+    checkpointsSummary: document.getElementById('codeCheckpointsSummary'),
+    checkpointsHint: document.getElementById('codeCheckpointsHint'),
+    envSummary: document.getElementById('codeEnvSummary'),
+    environment: document.getElementById('codeEnvironment'),
+    sandbox: document.getElementById('codeSandbox'),
+    leases: document.getElementById('codeLeases'),
+    receipts: document.getElementById('codeReceipts'),
+    receiptsSummary: document.getElementById('codeReceiptsSummary'),
+    actionCatalog: document.getElementById('codeActionCatalog'),
     meta: document.getElementById('codeMeta'),
     detail: document.getElementById('codeDetail'),
     detailTitle: document.getElementById('codeDetailTitle'),
@@ -85,48 +106,85 @@ export function initCodeSessionPanel(api) {
     });
   }
 
-  function renderSurface(data) {
-    view = data;
+  function setEmptyState(state) {
+    if (!els.emptyState) return;
+    if (state.status === 'ready') {
+      els.emptyState.classList.add('hidden');
+      return;
+    }
+    els.emptyState.classList.remove('hidden');
+    els.emptyState.innerHTML = `<strong>${esc(state.title)}</strong><p class="muted small">${esc(state.body)}</p>`;
+  }
+
+  function renderSurface(data, { error = null, loading = false } = {}) {
+    view = data?.ok ? data : null;
+    const ui = workSurfaceState({
+      loaded: Boolean(data?.ok),
+      loading,
+      error,
+      data
+    });
+    if (els.honesty) els.honesty.textContent = workHonestyLine(data?.ok ? workFirstPaintModel(data) : null);
+
     if (!els.surface) return;
-    if (!data?.ok) {
+    if (ui.status !== 'ready') {
       els.surface.classList.add('hidden');
       setActionsEnabled(false);
-      if (els.detail) els.detail.classList.add('hidden');
+      setEmptyState(ui);
+      if (els.detail && !error) els.detail.classList.add('hidden');
       if (els.proposeForm) els.proposeForm.classList.add('hidden');
       return;
     }
 
-    const op = data.operator_surface || {};
-    els.projectName.textContent = op.project_value || data.project?.name || '—';
-    els.sessionLifecycle.textContent = op.session_value
-      || data.persistent_code_session?.display
-      || data.persistent_code_session?.lifecycle
-      || '—';
-    els.currentTask.textContent = op.current_task_value
-      || data.current_task?.title
-      || data.current_task?.task_id
-      || 'None';
-    els.tests.textContent = op.tests_value || data.tests?.summary || '—';
-    els.workingTree.textContent = op.working_tree_value
-      || data.working_tree?.summary
-      || '—';
+    const model = workFirstPaintModel(data);
+    setEmptyState(ui);
 
-    const actorLines = Array.isArray(op.actors_lines) && op.actors_lines.length
-      ? op.actors_lines
-      : (data.actors || []).map(a => {
-        const detail = a.detail ? ` · ${a.detail}` : '';
-        return `${a.display || a.actor_id}     ${a.status || 'idle'}${detail}`;
-      });
-    els.actors.innerHTML = actorLines.length
-      ? actorLines.map(line => `<div class="code-actor-line">${esc(line)}</div>`).join('')
+    els.currentTask.textContent = model.currentTask;
+    els.sessionLifecycle.textContent = model.lifecycle;
+    els.projectName.textContent = model.projectName;
+    els.tests.textContent = model.tests;
+    els.workingTree.textContent = model.workingTree;
+    if (els.testsSummary) els.testsSummary.textContent = model.tests !== '—' ? `· ${model.tests}` : '';
+    if (els.workingTreeSummary) els.workingTreeSummary.textContent = model.workingTree !== '—' ? `· ${model.workingTree}` : '';
+    if (els.actorsSummary) {
+      els.actorsSummary.textContent = model.actors.length ? `· ${model.actors.length}` : '· none';
+    }
+    if (els.checkpointsSummary) els.checkpointsSummary.textContent = model.checkpointSummary ? `· ${model.checkpointSummary}` : '';
+    if (els.checkpointsHint) {
+      els.checkpointsHint.innerHTML = `Snapshot: ${esc(model.checkpointSummary)}. Use <strong>Checkpoints</strong> for the authoritative list from <code>cairnstone_code_checkpoint_list</code>.`;
+    }
+    if (els.envSummary) els.envSummary.textContent = `· ${model.environment.summary}`;
+    if (els.environment) els.environment.textContent = model.environment.summary;
+    if (els.sandbox) els.sandbox.textContent = `Sandbox: ${model.sandbox.summary}`;
+    if (els.leases) els.leases.textContent = `Leases: ${model.leases.summary}`;
+    if (els.receiptsSummary) els.receiptsSummary.textContent = model.receipts.summary ? `· ${model.receipts.summary}` : '';
+    if (els.receipts) {
+      if (model.receipts.items?.length) {
+        els.receipts.textContent = model.receipts.items
+          .slice(0, 8)
+          .map(r => r.receipt_id || r.id || JSON.stringify(r))
+          .join('\n');
+      } else {
+        els.receipts.textContent = model.receipts.summary || 'None in snapshot';
+      }
+    }
+    if (els.actionCatalog) {
+      els.actionCatalog.innerHTML = model.actions.map(a => {
+        const avail = a.available === false ? ' (unavailable)' : '';
+        return `<div class="work-action-row"><strong>${esc(a.label)}</strong><span class="muted small">${esc(a.maps_to)}${esc(avail)} · grants_authority: false</span></div>`;
+      }).join('');
+    }
+
+    els.actors.innerHTML = model.actors.length
+      ? model.actors.map(line => `<div class="code-actor-line">${esc(line)}</div>`).join('')
       : '<div class="muted small">No actors reported</div>';
 
     if (els.meta) {
       const bits = [];
-      if (data.project?.workspace_id) bits.push(chip(data.project.workspace_id));
-      if (data.persistent_code_session?.code_session_id) bits.push(chip(data.persistent_code_session.code_session_id));
-      if (data.console_grants_no_new_authority) bits.push(chip('console grants no new authority'));
-      if (data.accepted_state_authority === false) bits.push(chip('accepted_state_authority: false'));
+      if (model.workspaceId) bits.push(chip(model.workspaceId));
+      if (model.codeSessionId) bits.push(chip(model.codeSessionId));
+      if (model.consoleGrantsNoNewAuthority) bits.push(chip('console grants no new authority'));
+      bits.push(chip('accepted_state_authority: false'));
       els.meta.innerHTML = bits.join('');
     }
 
@@ -147,6 +205,7 @@ export function initCodeSessionPanel(api) {
 
   async function loadView() {
     busy(els.load, true, 'Loading…');
+    renderSurface(null, { loading: true });
     try {
       const args = credentials();
       const data = await mcpCall('cairnstone_code_session_console_view', args);
@@ -156,7 +215,7 @@ export function initCodeSessionPanel(api) {
       if (els.proposeForm) els.proposeForm.classList.add('hidden');
       toast('Code Session view loaded');
     } catch (err) {
-      renderSurface(null);
+      renderSurface(null, { error: err });
       showDetail('Load failed', err.payload || { error: err.message });
       toast(err.message);
     } finally {
@@ -387,4 +446,5 @@ export function initCodeSessionPanel(api) {
   });
 
   setActionsEnabled(false);
+  renderSurface(null);
 }

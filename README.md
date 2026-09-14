@@ -2,6 +2,10 @@
 
 A thin, provider-neutral browser client for the live CairnStone V7 runtime.
 
+## V7.7.9c Work + communications
+
+**Work** is the task-oriented home for Code Session (V7.7.7f console-view): current task first, then progressive disclosure for actors, tests, working tree, checkpoints, environment/sandbox, and an action catalog bound to existing APIs only. **Inbox** deepens into a communications hub (Inbox · Handoff · Activity) with shared list/thread patterns and clear intent labels while preserving AC1 identity and zero execution authority from correspondence. See `docs/V7_7_9C_WORK_COMMUNICATIONS.md`.
+
 ## V7.7.9b Chat + contextual evidence
 
 Chat is the grounded-chat home on the 9a shell: Answer Depth stays prominent; provider/model and related runtime knobs live in a **Chat config** sheet; grounded answers open an **Evidence** drawer bound to the same `response_id`. Presentation only — no new accepted-state authority. See `docs/V7_7_9B_CHAT_CONTEXTUAL_EVIDENCE.md`.
@@ -77,7 +81,7 @@ Then open `http://localhost:8080`.
 Unit tests:
 
 ```bash
-node --test answer-depth.test.js shell-nav.test.js chat-evidence.test.js
+node --test answer-depth.test.js shell-nav.test.js chat-evidence.test.js work-surface.test.js comms-hub.test.js
 ```
 
 ## Operator setup
