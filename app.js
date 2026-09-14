@@ -322,17 +322,28 @@ function updateScopeDependents() {
 }
 
 function renderChatMode() {
-  const single = state.scope.mode === 'single_chain' && (state.scopeSnapshot?.chains?.length || 0) === 1;
-  e.singleChainRouteControls.classList.toggle('hidden', !single);
-  e.temperatureWrap.classList.toggle('hidden', !single);
-  e.includeInboxWrap.classList.toggle('hidden', !single);
-  e.refreshModels.classList.toggle('hidden', !single);
+  const scopeResolved = Boolean(state.scopeSnapshot);
+  const single = state.scope.mode === 'single_chain' && (!scopeResolved || (state.scopeSnapshot?.chains?.length || 0) === 1);
+
+  // Keep Chat configuration spatially stable while Scope resolves or changes.
+  // Multi-chain Q&A currently uses cairnstone_ask_scope, which does not expose
+  // provider-neutral route, temperature, or inbox controls. Show those controls
+  // disabled instead of removing them so the UI does not jump or imply they vanished.
+  e.singleChainRouteControls.classList.remove('hidden');
+  e.temperatureWrap.classList.remove('hidden');
+  e.includeInboxWrap.classList.remove('hidden');
+  e.refreshModels.classList.remove('hidden');
+
+  [e.providerSelect, e.modelSelect, e.credentialAlias, e.temperature, e.includeInbox, e.refreshModels].forEach(control => {
+    if (control) control.disabled = !single;
+  });
+
   if (single) {
     const chain = state.scopeSnapshot?.chains?.[0]?.chain || state.scope.chains?.[0] || DEFAULT_CHAIN;
     e.chatModeNote.textContent = `Single-chain Scope · provider-neutral cairnstone_delegate grounded in ${chain}.`;
   } else {
     const n = state.scopeSnapshot?.chains?.length || 0;
-    e.chatModeNote.textContent = `Multi-chain Scope · citation-validated cairnstone_ask_scope across the exact ${n}-chain authority snapshot. No model tool execution and no persistent answer stone.`;
+    e.chatModeNote.textContent = `Multi-chain Scope · citation-validated cairnstone_ask_scope across the exact ${n}-chain authority snapshot. Provider/model, temperature, and inbox controls stay visible but are inactive in this mode. No model tool execution and no persistent answer stone.`;
   }
 }
 
@@ -346,6 +357,7 @@ async function loadCapabilities() {
     toast(err.message);
   } finally {
     busy(e.refreshModels, false, 'Models');
+    renderChatMode();
   }
 }
 
@@ -993,6 +1005,7 @@ document.addEventListener('keydown', event => { if (event.key === 'Escape' && !e
 [e.runtimeUrl, e.actorId, e.inboxActor, e.activityActors].forEach(x => x.addEventListener('change', saveSettings));
 
 loadSettings();
+renderChatMode();
 
 const inviteApi = initInvitePanel({
   mcpCall,
