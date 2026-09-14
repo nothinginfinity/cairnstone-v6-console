@@ -2,6 +2,10 @@
 
 A thin, provider-neutral browser client for the live CairnStone V7 runtime.
 
+## V7.7.9e Progressive disclosure + Saved Views
+
+Operators get stepped disclosure on Scope, Stones, Evidence, Work, and Authorize (task-first first paint; advanced/raw behind clear steps). **Saved Views** (context bar → Views) store selectors and presentation prefs in browser localStorage only — opening always re-resolves Scope via `cairnstone_resolve_scope` and never freezes HEADs as accepted truth. See `docs/V7_7_9E_SAVED_VIEWS_PROGRESSIVE_DISCLOSURE.md`.
+
 ## V7.7.9d Universe v2
 
 **Universe** is a semantic-zoom projection (Vault → Repo → Chain → Intelligence) over the same Scope selectors as the context bar. Spatial, list, and grid views share one entity set; search focuses without mutating accepted state; Intelligence LOD loads one bounded orientation card via existing read APIs. Presentation only — no synthetic graph edges or Console authority. See `docs/V7_7_9D_UNIVERSE_V2.md`.
@@ -85,7 +89,7 @@ Then open `http://localhost:8080`.
 Unit tests:
 
 ```bash
-node --test answer-depth.test.js shell-nav.test.js chat-evidence.test.js work-surface.test.js comms-hub.test.js universe-v2.test.js
+node --test answer-depth.test.js shell-nav.test.js chat-evidence.test.js work-surface.test.js comms-hub.test.js universe-v2.test.js saved-views.test.js progressive-disclosure.test.js
 ```
 
 ## Operator setup
@@ -94,6 +98,6 @@ Set a strong Worker secret named `CAIRNSTONE_OPERATOR_TOKEN` on `cairnstone-v6`.
 
 ## Authority model
 
-The Console is a client, not a source of accepted state. Scope is navigation/retrieval context only. CairnStone chain/path HEADs remain canonical authority. AC1 handoff messages are immutable correspondence artifacts and transport intent only. Answer Depth presentation defaults are local UI state only.
+The Console is a client, not a source of accepted state. Scope is navigation/retrieval context only. CairnStone chain/path HEADs remain canonical authority. AC1 handoff messages are immutable correspondence artifacts and transport intent only. Answer Depth presentation defaults and Saved Views are local UI state only.
 
 The optional GitHub inbox mirror is transport-only. The browser sends only the target owner/repo/branch/path prefix to CairnStone; GitHub credentials remain server-side in the runtime. A mirror artifact records its AC1 stone hash and explicitly carries zero execution, mutation, external-mirror, or accepted-state authority.

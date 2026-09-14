@@ -23,8 +23,9 @@ test('legacy capabilities remain reachable as panels or sheets', () => {
   for (const id of [
     'panel-chat', 'panel-code', 'panel-universe', 'panel-inbox', 'panel-handoff', 'panel-activity',
     'panel-stones', 'panel-evidence', 'panel-authorize', 'panel-invite', 'panel-settings',
-    'scopeSheet', 'runtimeSheet', 'chatConfigSheet', 'evidenceDrawer', 'universeOverlay',
-    'answerDepthControls', 'codeSessionId', 'operatorToken', 'taskInput', 'openChatConfig', 'openEvidenceDrawer'
+    'scopeSheet', 'runtimeSheet', 'chatConfigSheet', 'evidenceDrawer', 'savedViewsSheet', 'universeOverlay',
+    'answerDepthControls', 'codeSessionId', 'operatorToken', 'taskInput', 'openChatConfig', 'openEvidenceDrawer',
+    'contextViewsBtn', 'savedViewSave', 'stonesRawBlock', 'authorizeRawBlock', 'evidenceDisclosure'
   ]) {
     assert.match(html, new RegExp(`id="${id}"`));
   }
@@ -112,4 +113,20 @@ test('Universe v2 exposes semantic zoom and list/grid parity controls', () => {
   assert.match(app, /searchToFocus|focusUniverseSearch/);
   assert.match(app, /cairnstone_resume_chain/);
   assert.doesNotMatch(app, /accepted_state_authority:\s*true/);
+});
+
+test('V7.7.9e progressive disclosure + Saved Views stay presentation-only', () => {
+  assert.match(html, /id="savedViewsSheet"/);
+  assert.match(html, /id="contextViewsBtn"/);
+  assert.match(html, /progressive-disclosure|progressive-details/);
+  assert.match(html, /id="stonesRawBlock"/);
+  assert.match(html, /id="authorizeRawBlock"/);
+  assert.match(html, /id="scopeAdvanced"/);
+  assert.match(app, /saved-views/);
+  assert.match(app, /openSavedView|captureCurrentView|upsertSavedView/);
+  assert.match(app, /progressive-disclosure/);
+  assert.match(app, /cairnstone_resolve_scope/);
+  assert.match(app, /mustResolveScope|re-resolv/i);
+  assert.doesNotMatch(app, /accepted_state_authority:\s*true/);
+  assert.doesNotMatch(html, /Bearer [A-Za-z0-9._-]{20,}/);
 });
