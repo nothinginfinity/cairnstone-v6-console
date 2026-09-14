@@ -1319,6 +1319,7 @@ async function renderUniverse() {
     btn.classList.toggle('active', btn.dataset.view === state.universeViewMode);
   });
   if (e.universeStage) e.universeStage.dataset.view = state.universeViewMode;
+  if (e.universeGrid) e.universeGrid.classList.toggle('hidden', state.universeViewMode !== 'grid');
   if (e.universeFallbackLabel) e.universeFallbackLabel.textContent = state.universeViewMode === 'list' ? 'List view' : 'List fallback';
 
   await ensureUniverseLodData();
