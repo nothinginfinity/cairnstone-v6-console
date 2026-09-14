@@ -65,6 +65,7 @@ import {
   stonesDisclosureModel,
   workDisclosurePrefsFromDom
 } from './progressive-disclosure.js';
+import { applyReducedMotionClass } from './ux-acceptance.js';
 
 const DEFAULT_RUNTIME = 'https://cairnstone-v6.jaredtechfit.workers.dev/mcp';
 const DEFAULT_CHAIN = 'cairnstone-v6-project-memory';
@@ -1900,12 +1901,19 @@ function panel(name) {
   const panelName = name === 'work' ? 'code' : name;
   const primary = PRIMARY_BY_PANEL[panelName] || 'chat';
   state.activePanel = panelName;
-  document.querySelectorAll('.nav-item').forEach(t => t.classList.toggle('active', t.dataset.nav === primary));
+  document.querySelectorAll('.nav-item').forEach(t => {
+    const active = t.dataset.nav === primary;
+    t.classList.toggle('active', active);
+    if (active) t.setAttribute('aria-current', 'page');
+    else t.removeAttribute('aria-current');
+  });
   document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === `panel-${panelName}`));
   if (e.inboxSubnav) e.inboxSubnav.classList.toggle('hidden', primary !== 'inbox');
   if (e.moreSubnav) e.moreSubnav.classList.toggle('hidden', primary !== 'more');
   document.querySelectorAll('#inboxSubnav .subnav-item, #moreSubnav .subnav-item').forEach(t => {
-    t.classList.toggle('active', t.dataset.panel === panelName);
+    const active = t.dataset.panel === panelName;
+    t.classList.toggle('active', active);
+    t.setAttribute('aria-selected', active ? 'true' : 'false');
   });
   if (primary === 'more') syncSettingsPreview();
   if (panelName === 'universe') syncUniverseLanding();
@@ -2257,9 +2265,11 @@ initCodeSessionPanel({
   panel,
   invitePrefill: (opts) => inviteApi?.prefillForCodeSession?.(opts)
 });
+applyReducedMotionClass();
 await health().catch(() => {});
 await loadVaultCatalog().catch(err => {
   e.scopeCatalog.innerHTML = `<p class="muted">${esc(err.message)}</p>`;
 });
 await loadCapabilities();
 syncContextBar();
+panel(state.activePanel || 'chat');
