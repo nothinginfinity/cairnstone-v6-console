@@ -2,6 +2,10 @@
 
 A thin, provider-neutral browser client for the live CairnStone V7 runtime.
 
+## V7.7.9d Universe v2
+
+**Universe** is a semantic-zoom projection (Vault → Repo → Chain → Intelligence) over the same Scope selectors as the context bar. Spatial, list, and grid views share one entity set; search focuses without mutating accepted state; Intelligence LOD loads one bounded orientation card via existing read APIs. Presentation only — no synthetic graph edges or Console authority. See `docs/V7_7_9D_UNIVERSE_V2.md`.
+
 ## V7.7.9c Work + communications
 
 **Work** is the task-oriented home for Code Session (V7.7.7f console-view): current task first, then progressive disclosure for actors, tests, working tree, checkpoints, environment/sandbox, and an action catalog bound to existing APIs only. **Inbox** deepens into a communications hub (Inbox · Handoff · Activity) with shared list/thread patterns and clear intent labels while preserving AC1 identity and zero execution authority from correspondence. See `docs/V7_7_9C_WORK_COMMUNICATIONS.md`.
@@ -48,12 +52,12 @@ V7.7.3 turns the previous single-Chain Console into a shared multi-repository / 
 - Stones uses single-chain listing when narrowed to one chain and `cairnstone_find_scope` for cross-Scope search;
 - Handoff association is explicit: the human chooses one exact participating chain because AC1 handoffs carry one chain field;
 - Inbox and Activity are deliberately **not** auto-filtered by Scope because compact correspondence listing metadata does not expose a trustworthy chain association;
-- Bird’s Eye / Universe is a full-screen spatial projection of the same Scope selectors, with search-to-focus, repository/chain semantic LOD, explicit multi-select, and a list fallback;
+- Bird’s Eye / Universe is a full-screen spatial projection of the same Scope selectors, with semantic zoom (Vault → Repo → Chain → Intelligence), search-to-focus, list/grid parity, explicit multi-select, and bounded LOD loading;
 - spatial position, proximity, clustering, size, and animation are presentation only. They are never authority and never create graph edges;
 - repository grouping shown in the projection comes from catalog provenance;
 - no synthetic global HEAD is created. Every participating chain retains its own canonical chain HEAD and accepted path HEADs.
 
-The console remains dependency-free and requires no WebGL. The Universe projection uses ordinary DOM/CSS so a usable list fallback is always present.
+The console remains dependency-free and requires no WebGL. The Universe projection uses ordinary DOM/CSS so a usable list/grid fallback is always present.
 
 ## Existing trusted-human boundary
 
@@ -81,7 +85,7 @@ Then open `http://localhost:8080`.
 Unit tests:
 
 ```bash
-node --test answer-depth.test.js shell-nav.test.js chat-evidence.test.js work-surface.test.js comms-hub.test.js
+node --test answer-depth.test.js shell-nav.test.js chat-evidence.test.js work-surface.test.js comms-hub.test.js universe-v2.test.js
 ```
 
 ## Operator setup

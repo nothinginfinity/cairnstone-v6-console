@@ -97,3 +97,19 @@ test('Communications hub keeps Inbox · Handoff · Activity with shared list pat
   assert.match(app, /syncCommsHub/);
   assert.doesNotMatch(app, /accepted_state_authority:\s*true/);
 });
+
+test('Universe v2 exposes semantic zoom and list/grid parity controls', () => {
+  assert.match(html, /id="universeZoomIn"/);
+  assert.match(html, /id="universeZoomOut"/);
+  assert.match(html, /id="universeViewSpatial"/);
+  assert.match(html, /id="universeViewList"/);
+  assert.match(html, /id="universeViewGrid"/);
+  assert.match(html, /id="universeGrid"/);
+  assert.match(html, /id="universeIntelPanel"/);
+  assert.match(html, /Vault → Repo → Chain → Intelligence|semantic zoom/i);
+  assert.match(app, /universe-v2/);
+  assert.match(app, /buildUniverseEntities/);
+  assert.match(app, /searchToFocus|focusUniverseSearch/);
+  assert.match(app, /cairnstone_resume_chain/);
+  assert.doesNotMatch(app, /accepted_state_authority:\s*true/);
+});
