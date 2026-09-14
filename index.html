@@ -52,6 +52,7 @@
       <button class="tab" data-panel="handoff" type="button">Handoff</button>
       <button class="tab" data-panel="activity" type="button">Activity</button>
       <button class="tab" data-panel="stones" type="button">Stones</button>
+      <button class="tab" data-panel="code" type="button">Code</button>
       <button class="tab" data-panel="invite" type="button">Invite</button>
       <button class="tab" data-panel="authorize" type="button">Authorize</button>
     </nav>
@@ -141,6 +142,56 @@
           <div id="stoneDetailMeta" class="chips"></div>
           <details open><summary>Summary / preview</summary><pre id="stoneDetailSummary" class="code-block wrap">Select a stone or search match to see its summary.</pre></details>
           <button id="copyStoneHash" class="secondary" type="button" disabled>Copy hash</button>
+        </div>
+      </section>
+      <section id="panel-code" class="panel">
+        <div class="card code-session-card">
+          <div class="section-heading">
+            <div><div class="eyebrow">V7.7.7f Persistent Code Mode</div><h2>Code Session</h2></div>
+            <button id="codeLoad" class="secondary" type="button">Load console view</button>
+          </div>
+          <p class="muted small">Operator surface for one Code Session (not a single model chat). Workspace capability stays in this browser session only — never stoned. Console grants no new authority.</p>
+          <label><span>Code Session ID</span><input id="codeSessionId" autocomplete="off" placeholder="cs:…"></label>
+          <label><span>Workspace capability</span><input id="codeWorkspaceCap" type="password" autocomplete="off" placeholder="workspace capability (sessionStorage only)"></label>
+          <div id="codeSurface" class="code-surface hidden">
+            <div class="code-block-label">PROJECT</div>
+            <div id="codeProjectName" class="code-block-value">—</div>
+            <div class="code-block-label">PERSISTENT CODE SESSION</div>
+            <div id="codeSessionLifecycle" class="code-block-value">—</div>
+            <div class="code-block-label">Current task</div>
+            <div id="codeCurrentTask" class="code-block-value">—</div>
+            <div class="code-block-label">Actors</div>
+            <div id="codeActors" class="code-actors">—</div>
+            <div class="code-block-label">Tests</div>
+            <div id="codeTests" class="code-block-value">—</div>
+            <div class="code-block-label">Working tree</div>
+            <div id="codeWorkingTree" class="code-block-value">—</div>
+            <div id="codeMeta" class="chips"></div>
+            <div class="code-actions invite-actions">
+              <button id="codeInviteAgent" class="secondary" type="button" disabled>Invite Agent</button>
+              <button id="codeSendMessage" class="secondary" type="button" disabled>Send Message</button>
+              <button id="codeCheckpoints" class="secondary" type="button" disabled>Checkpoints</button>
+              <button id="codeViewWork" class="secondary" type="button" disabled>View Work</button>
+              <button id="codeProposeMerge" class="primary compact-button" type="button" disabled>Propose / Merge</button>
+            </div>
+          </div>
+          <div id="codeProposeForm" class="code-propose-form hidden">
+            <div class="eyebrow">Propose / Merge</div>
+            <p class="muted small">Calls <code>cairnstone_workspace_propose_accept</code> only after confirm. Requires propose scope on the workspace capability. Console does not add merge/deploy authority; accepted_state_authority stays false.</p>
+            <label><span>Title <small>(optional)</small></span><input id="codeProposeTitle" autocomplete="off" placeholder="Proposal title"></label>
+            <label><span>Note <small>(optional)</small></span><textarea id="codeProposeNote" rows="2" placeholder="Review note"></textarea></label>
+            <label><span>Path prefix <small>(optional)</small></span><input id="codeProposePrefix" autocomplete="off" placeholder="notes/"></label>
+            <label><span>Paths <small>(optional; one per line — omit to use server default)</small></span><textarea id="codeProposePaths" rows="3" placeholder="Leave empty rather than inventing paths"></textarea></label>
+            <div class="invite-actions">
+              <button id="codeProposeConfirm" class="primary compact-button" type="button">Confirm propose</button>
+              <button id="codeProposeCancel" class="secondary" type="button">Cancel</button>
+            </div>
+          </div>
+        </div>
+        <div id="codeDetail" class="card hidden">
+          <div class="eyebrow">Detail</div>
+          <h2 id="codeDetailTitle">—</h2>
+          <pre id="codeDetailBody" class="code-block wrap"></pre>
         </div>
       </section>
       <section id="panel-invite" class="panel">
@@ -243,7 +294,7 @@ grok-bot:cairnstone-v6</textarea></label>
         </div>
       </section>
     </main>
-    <footer>V7.7.6b Console · Scope is navigation/retrieval context, never synthetic global authority · accepted state remains in CairnStone</footer>
+    <footer>V7.7.7f Console · Scope is navigation/retrieval context, never synthetic global authority · accepted state remains in CairnStone</footer>
   </div>
   <div id="universeOverlay" class="universe-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="universeTitle">
     <div class="universe-shell">
