@@ -49,6 +49,22 @@ import {
   zoomLabel,
   zoomOut
 } from './universe-v2.js';
+import {
+  captureCurrentView,
+  deleteSavedView,
+  listSavedViewSummaries,
+  loadSavedViewsStore,
+  openSavedView,
+  upsertSavedView
+} from './saved-views.js';
+import {
+  applyWorkDisclosurePrefs,
+  authorizeDisclosureModel,
+  evidenceDisclosureModel,
+  scopeDisclosureModel,
+  stonesDisclosureModel,
+  workDisclosurePrefsFromDom
+} from './progressive-disclosure.js';
 
 const DEFAULT_RUNTIME = 'https://cairnstone-v6.jaredtechfit.workers.dev/mcp';
 const DEFAULT_CHAIN = 'cairnstone-v6-project-memory';
@@ -83,7 +99,9 @@ const state = {
   universeError: null,
   universePanZoom: { scale: 1, x: 0, y: 0 },
   universeMultiMode: false,
-  universeMultiSelection: new Set()
+  universeMultiSelection: new Set(),
+  activePanel: 'chat',
+  savedViewFreshness: null
 };
 
 const PRIMARY_BY_PANEL = {
@@ -115,12 +133,17 @@ const e = {
   inboxSubnav: $('inboxSubnav'), moreSubnav: $('moreSubnav'),
   inboxGroupThreads: $('inboxGroupThreads'),
   scopeSheet: $('scopeSheet'), runtimeSheet: $('runtimeSheet'), chatConfigSheet: $('chatConfigSheet'), evidenceDrawer: $('evidenceDrawer'),
+  savedViewsSheet: $('savedViewsSheet'),
+  contextViewsBtn: $('contextViewsBtn'), contextViewsLabel: $('contextViewsLabel'),
+  savedViewName: $('savedViewName'), savedViewSave: $('savedViewSave'), savedViewsList: $('savedViewsList'),
+  savedViewFreshness: $('savedViewFreshness'), scopeAdvanced: $('scopeAdvanced'),
   settingsOpenSheet: $('settingsOpenSheet'), settingsActorPreview: $('settingsActorPreview'), settingsRuntimePreview: $('settingsRuntimePreview'),
   runtimeSheetRecheck: $('runtimeSheetRecheck'),
   openChatConfig: $('openChatConfig'), openEvidenceDrawer: $('openEvidenceDrawer'),
   chatConfigHonesty: $('chatConfigHonesty'), chatConfigRouteNote: $('chatConfigRouteNote'),
   chatCapabilityHonesty: $('chatCapabilityHonesty'), evidenceDrawerHint: $('evidenceDrawerHint'),
   evidenceDrawerTitle: $('evidenceDrawerTitle'), evidenceDrawerSubtitle: $('evidenceDrawerSubtitle'), evidenceDrawerBody: $('evidenceDrawerBody'),
+  evidenceHonesty: $('evidenceHonesty'), evidenceEmptyState: $('evidenceEmptyState'),
   scopeSummary: $('scopeSummary'), scopeAuthority: $('scopeAuthority'), scopeCoverage: $('scopeCoverage'), scopeSearch: $('scopeSearch'), scopeAll: $('scopeAll'), scopeDefault: $('scopeDefault'),
   scopeRecentsWrap: $('scopeRecentsWrap'), scopeRecents: $('scopeRecents'), scopeCatalog: $('scopeCatalog'), scopePicker: $('scopePicker'),
   universeLandingSummary: $('universeLandingSummary'), universeLandingAuthority: $('universeLandingAuthority'), universeLandingLod: $('universeLandingLod'),
@@ -146,10 +169,13 @@ const e = {
   mirrorOwner: $('mirrorOwner'), mirrorRepo: $('mirrorRepo'), mirrorBranch: $('mirrorBranch'), mirrorPrefix: $('mirrorPrefix'), handoffButton: $('handoffButton'), handoffResult: $('handoffResult'),
   activityRefresh: $('activityRefresh'), activityActors: $('activityActors'), activityFilter: $('activityFilter'), activityGroupThreads: $('activityGroupThreads'), activityList: $('activityList'),
   stonesRefresh: $('stonesRefresh'), stonesQuery: $('stonesQuery'), stonesHead: $('stonesHead'), stonesList: $('stonesList'), stoneDetailTitle: $('stoneDetailTitle'), stoneDetailMeta: $('stoneDetailMeta'),
-  stoneDetailSummary: $('stoneDetailSummary'), copyStoneHash: $('copyStoneHash'),
+  stoneDetailSummary: $('stoneDetailSummary'), stoneDetailRaw: $('stoneDetailRaw'), copyStoneHash: $('copyStoneHash'),
+  stonesEmptyState: $('stonesEmptyState'), stonesDetailBlock: $('stonesDetailBlock'), stonesRawBlock: $('stonesRawBlock'),
   operatorToken: $('operatorToken'), authorizationRefresh: $('authorizationRefresh'), authorizationList: $('authorizationList'), authorizationTitle: $('authorizationTitle'),
   authorizationMeta: $('authorizationMeta'), authorizationSummary: $('authorizationSummary'), authorizationArguments: $('authorizationArguments'), authorizationRaw: $('authorizationRaw'),
-  authorizationReject: $('authorizationReject'), authorizationApprove: $('authorizationApprove'), authorizationResult: $('authorizationResult'), toast: $('toast')
+  authorizationReject: $('authorizationReject'), authorizationApprove: $('authorizationApprove'), authorizationResult: $('authorizationResult'),
+  authorizationEmptyState: $('authorizationEmptyState'), authorizeArgsBlock: $('authorizeArgsBlock'), authorizeRawBlock: $('authorizeRawBlock'),
+  toast: $('toast')
 };
 
 function normalizeScope(raw) {
@@ -398,8 +424,9 @@ async function setScope(scope, label, { recordRecent = true } = {}) {
   state.scope = normalizeScope(scope);
   saveSettings();
   renderScopeCatalog();
-  await resolveCurrentScope({ recordRecent, recentLabel: label });
+  const snap = await resolveCurrentScope({ recordRecent, recentLabel: label });
   if (!e.universeOverlay.classList.contains('hidden')) renderUniverse().catch(() => {});
+  return snap;
 }
 
 async function toggleChainInScope(chain) {
@@ -415,6 +442,7 @@ async function resolveCurrentScope({ recordRecent = false, recentLabel } = {}) {
   e.scopeSummary.textContent = 'Resolving Scope…';
   e.scopeAuthority.textContent = 'Reading exact participating chain HEAD snapshot.';
   syncContextBar({ scopePending: true });
+  syncScopeDisclosure({ loading: true });
   try {
     const snap = await mcpCall('cairnstone_resolve_scope', scopeArgs());
     state.scopeSnapshot = snap;
@@ -433,6 +461,7 @@ async function resolveCurrentScope({ recordRecent = false, recentLabel } = {}) {
     renderScopeCatalog();
     renderEvidence(state.lastResult);
     syncContextBar();
+    syncScopeDisclosure({ resolved: true, diagnostics: diagnostics.join(' ') });
     return snap;
   } catch (err) {
     state.scopeSnapshot = null;
@@ -441,9 +470,30 @@ async function resolveCurrentScope({ recordRecent = false, recentLabel } = {}) {
     e.scopeCoverage.textContent = '';
     updateScopeDependents();
     syncContextBar();
+    syncScopeDisclosure({ error: err });
     toast(err.message);
     throw err;
   }
+}
+
+function syncScopeDisclosure({ loading = false, error = null, resolved = Boolean(state.scopeSnapshot), diagnostics = '' } = {}) {
+  const model = scopeDisclosureModel({
+    resolved,
+    loading,
+    error,
+    summary: e.scopeSummary?.textContent || '',
+    authorityLine: e.scopeAuthority?.textContent || '',
+    diagnostics: diagnostics || e.scopeCoverage?.textContent || '',
+    pickerOpen: Boolean(e.scopePicker?.open),
+    advancedOpen: Boolean(e.scopeAdvanced?.open)
+  });
+  if (e.scopeAdvanced && diagnostics) {
+    // Keep coverage text in the advanced block; open only when there is content and user left it open.
+    if (diagnostics && !e.scopeAdvanced.dataset.userTouched) {
+      e.scopeAdvanced.open = Boolean(diagnostics);
+    }
+  }
+  return model;
 }
 
 function updateScopeDependents() {
@@ -946,6 +996,15 @@ function renderResult(r) {
 
 function renderEvidence(r) {
   const snap = r?.scope_snapshot || state.scopeSnapshot;
+  const hasResult = Boolean(r) || Boolean(snap);
+  if (e.evidenceEmptyState) e.evidenceEmptyState.classList.toggle('hidden', hasResult);
+  const sectionsOpen = [...document.querySelectorAll('#evidenceDisclosure details[data-evidence-section]')]
+    .filter(el => el.open)
+    .map(el => el.dataset.evidenceSection);
+  const model = evidenceDisclosureModel({ hasResult, sectionsOpen: sectionsOpen.length ? sectionsOpen : ['accepted'] });
+  if (e.evidenceHonesty && model.namingNote) {
+    e.evidenceHonesty.innerHTML = `Authority summary first. Deeper refs expand on demand. <code>response_lod</code> ≠ <code>stone_lod</code>.`;
+  }
   if (isGroundedResponse(r)) {
     const fresh = r.authority_freshness || {};
     e.authoritySummary.innerHTML = [
@@ -990,7 +1049,7 @@ function renderEvidence(r) {
     list(e.skillsList, [], () => '');
     list(e.memoryRefs, [], () => '');
     e.observability.textContent = JSON.stringify({ scope_snapshot: snap, coverage: r.coverage, citation_validation: r.citation_validation, read_only: r.read_only }, null, 2);
-  } else {
+  } else if (r || snap) {
     const ev = r?.evidence || {}, p = r?.policy || {}, d = r?.diagnostics || {}, head = ev.chain_head || {};
     e.authoritySummary.innerHTML = [
       ['Scope ID', snap?.scope_id || '—'],
@@ -1006,6 +1065,12 @@ function renderEvidence(r) {
     list(e.skillsList, ev.selected_skills, x => `<strong>${esc(x.skill_id || 'skill')}</strong> ${esc(x.skill_version || '')}<br>${esc(short(x.stone_hash))}`);
     list(e.memoryRefs, ev.memory_refs, x => `<strong>${esc(x.path || x.ref_id || 'memory')}</strong><br>${esc(short(x.stone_hash))}${x.ref_id ? ` · ${esc(x.ref_id)}` : ''}`);
     e.observability.textContent = JSON.stringify(r?.observability || { scope_snapshot: snap, diagnostics: d }, null, 2);
+  } else {
+    e.authoritySummary.innerHTML = '';
+    if (e.pathHeads) e.pathHeads.innerHTML = '';
+    if (e.skillsList) e.skillsList.innerHTML = '';
+    if (e.memoryRefs) e.memoryRefs.innerHTML = '';
+    if (e.observability) e.observability.textContent = '{}';
   }
   e.copyEvidence.disabled = !r && !state.scopeSnapshot;
 }
@@ -1202,6 +1267,7 @@ async function readActivityMessage(m) {
 async function refreshStones() {
   if (!state.scopeSnapshot) return toast('Resolve Scope first');
   busy(e.stonesRefresh, true, 'Loading…');
+  if (e.stonesEmptyState) e.stonesEmptyState.classList.add('hidden');
   try {
     const query = e.stonesQuery.value.trim();
     if (state.scope.mode === 'single_chain' && state.scopeSnapshot.chains?.length === 1) {
@@ -1231,7 +1297,13 @@ async function refreshStones() {
     renderStones();
     toast(`${state.stones.length} item${state.stones.length === 1 ? '' : 's'} loaded`);
   } catch (err) {
+    state.stones = [];
     e.stonesList.innerHTML = `<p class="muted">${esc(err.message)}</p>`;
+    if (e.stonesEmptyState) {
+      e.stonesEmptyState.classList.remove('hidden');
+      e.stonesEmptyState.innerHTML = `<strong>Stones unavailable</strong><p class="muted small">${esc(err.message)}</p>`;
+    }
+    stonesDisclosureModel({ error: err, query: e.stonesQuery?.value || '' });
     toast(err.message);
   } finally {
     busy(e.stonesRefresh, false, 'Refresh');
@@ -1240,6 +1312,20 @@ async function refreshStones() {
 
 function renderStones() {
   const xs = state.stones || [];
+  const model = stonesDisclosureModel({
+    itemCount: xs.length,
+    selected: Boolean(state.selectedStone),
+    detailOpen: Boolean(e.stonesDetailBlock?.open),
+    rawOpen: Boolean(e.stonesRawBlock?.open),
+    query: e.stonesQuery?.value || ''
+  });
+  if (e.stonesEmptyState) {
+    const showEmpty = model.status === 'empty';
+    e.stonesEmptyState.classList.toggle('hidden', !showEmpty);
+    if (showEmpty) {
+      e.stonesEmptyState.innerHTML = `<strong>${esc(model.title)}</strong><p class="muted small">${esc(model.body)}</p>`;
+    }
+  }
   if (!xs.length) {
     e.stonesList.innerHTML = '<p class="muted">No stones or matches found.</p>';
     return;
@@ -1270,11 +1356,37 @@ function selectStone(s) {
     e.stoneDetailTitle.textContent = `${s.chain} · ${s.authority_class || 'evidence'}`;
     e.stoneDetailMeta.innerHTML = [['Path', s.path || '—'], ['Repo', s.repo || '—'], ['Commit', s.commit_sha ? s.commit_sha.slice(0, 12) : '—'], ['Authority', s.authority_class || '—'], ['Ref', s.ref_id || '—']].map(([k, v]) => chip(`${k}: ${v}`)).join('');
     e.stoneDetailSummary.textContent = s.preview || 'No preview returned.';
+    if (e.stoneDetailRaw) {
+      e.stoneDetailRaw.textContent = JSON.stringify({
+        kind: 'scope_match',
+        chain: s.chain,
+        path: s.path,
+        stone_hash: s.stone_hash,
+        authority_class: s.authority_class,
+        ref_id: s.ref_id,
+        commit_sha: s.commit_sha,
+        note: 'stone_lod is storage LOD when present on stone payloads; response_lod is Answer Depth only.'
+      }, null, 2);
+    }
   } else {
     e.stoneDetailTitle.textContent = s.title || '(untitled)';
     e.stoneDetailMeta.innerHTML = [['Path', s.path || '—'], ['Repo', s.repo || '—'], ['Commit', s.commit ? s.commit.slice(0, 12) : '—'], ['HEAD', s.is_head ? 'yes' : 'no'], ['Author', s.author || '—'], ['Created', s.created_at ? new Date(s.created_at).toLocaleString() : '—']].map(([k, v]) => chip(`${k}: ${v}`)).join('');
     e.stoneDetailSummary.textContent = `LOD5: ${s.lod5 || '—'}\n\nLOD4: ${s.lod4 || '—'}`;
+    if (e.stoneDetailRaw) {
+      e.stoneDetailRaw.textContent = JSON.stringify({
+        hash: s.hash,
+        path: s.path,
+        is_head: s.is_head,
+        lod5: s.lod5,
+        lod4: s.lod4,
+        lod3: s.lod3,
+        lod2: s.lod2,
+        lod1: s.lod1,
+        naming: 'stone_lod (lod5→lod1) ≠ response_lod (1→5 Answer Depth)'
+      }, null, 2);
+    }
   }
+  if (e.stonesDetailBlock) e.stonesDetailBlock.open = true;
   e.copyStoneHash.disabled = !hash;
 }
 
@@ -1644,6 +1756,7 @@ function bindUniversePanZoom() {
 
 async function refreshAuthorizations() {
   busy(e.authorizationRefresh, true, 'Loading…');
+  syncAuthorizeDisclosure({ loading: true });
   try {
     const r = await operatorCall('/v1/tool-authorizations?limit=100');
     state.authorizations = r.authorizations || [];
@@ -1651,6 +1764,7 @@ async function refreshAuthorizations() {
     toast(`${state.authorizations.length} authorization record${state.authorizations.length === 1 ? '' : 's'}`);
   } catch (err) {
     e.authorizationList.innerHTML = `<p class="muted">${esc(err.message)}</p>`;
+    syncAuthorizeDisclosure({ error: err });
     toast(err.message);
   } finally {
     busy(e.authorizationRefresh, false, 'Refresh');
@@ -1658,8 +1772,10 @@ async function refreshAuthorizations() {
 }
 
 function renderAuthorizations() {
+  const tokenPresent = Boolean(e.operatorToken?.value?.trim());
   if (!state.authorizations.length) {
     e.authorizationList.innerHTML = '<p class="muted">No authorization history.</p>';
+    syncAuthorizeDisclosure({ count: 0, tokenPresent });
     return;
   }
   e.authorizationList.innerHTML = '';
@@ -1671,6 +1787,12 @@ function renderAuthorizations() {
     b.innerHTML = `<strong>${esc(label)}</strong><div class="meta">${esc(a.tool_id || 'mutation')} · ${esc(target.chain || target.repo || '')}${target.path ? ` · ${esc(target.path)}` : ''}</div><div class="meta">${esc(short(a.authorization_request_id))} · ${esc(a.status || '')}</div>`;
     b.addEventListener('click', () => selectAuthorization(a));
     e.authorizationList.append(b);
+  });
+  syncAuthorizeDisclosure({
+    count: state.authorizations.length,
+    tokenPresent,
+    selected: Boolean(state.selectedAuthorization),
+    pending: state.selectedAuthorization?.status === 'pending'
   });
 }
 
@@ -1694,6 +1816,39 @@ function selectAuthorization(a) {
   const pending = a.status === 'pending';
   e.authorizationReject.disabled = !pending;
   e.authorizationApprove.disabled = !pending;
+  if (e.authorizeArgsBlock) e.authorizeArgsBlock.open = true;
+  if (e.authorizeRawBlock) e.authorizeRawBlock.open = false;
+  syncAuthorizeDisclosure({
+    count: state.authorizations.length,
+    tokenPresent: Boolean(e.operatorToken?.value?.trim()),
+    selected: true,
+    pending,
+    materialEffect: authorizationEffect(a),
+    argsOpen: Boolean(e.authorizeArgsBlock?.open),
+    rawOpen: Boolean(e.authorizeRawBlock?.open)
+  });
+}
+
+function syncAuthorizeDisclosure(opts = {}) {
+  const model = authorizeDisclosureModel({
+    loading: Boolean(opts.loading),
+    error: opts.error || null,
+    count: opts.count ?? (state.authorizations?.length || 0),
+    selected: opts.selected ?? Boolean(state.selectedAuthorization),
+    pending: opts.pending ?? (state.selectedAuthorization?.status === 'pending'),
+    tokenPresent: opts.tokenPresent ?? Boolean(e.operatorToken?.value?.trim()),
+    argsOpen: opts.argsOpen ?? Boolean(e.authorizeArgsBlock?.open),
+    rawOpen: opts.rawOpen ?? Boolean(e.authorizeRawBlock?.open),
+    materialEffect: opts.materialEffect || ''
+  });
+  if (e.authorizationEmptyState) {
+    const show = model.status === 'empty' || model.status === 'disabled' || model.status === 'error';
+    e.authorizationEmptyState.classList.toggle('hidden', !show || (model.status === 'ready'));
+    if (show && model.status !== 'ready') {
+      e.authorizationEmptyState.innerHTML = `<strong>${esc(model.title)}</strong><p class="muted small">${esc(model.body)}</p>`;
+    }
+  }
+  return model;
 }
 
 function authorizationEffect(a) {
@@ -1744,6 +1899,7 @@ function toast(message) {
 function panel(name) {
   const panelName = name === 'work' ? 'code' : name;
   const primary = PRIMARY_BY_PANEL[panelName] || 'chat';
+  state.activePanel = panelName;
   document.querySelectorAll('.nav-item').forEach(t => t.classList.toggle('active', t.dataset.nav === primary));
   document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === `panel-${panelName}`));
   if (e.inboxSubnav) e.inboxSubnav.classList.toggle('hidden', primary !== 'inbox');
@@ -1754,6 +1910,9 @@ function panel(name) {
   if (primary === 'more') syncSettingsPreview();
   if (panelName === 'universe') syncUniverseLanding();
   if (primary === 'inbox') syncCommsHub(panelName);
+  if (panelName === 'authorize') syncAuthorizeDisclosure();
+  if (panelName === 'evidence') renderEvidence(state.lastResult);
+  syncSavedViewsContextLabel();
 }
 
 function syncCommsHub(panelName) {
@@ -1787,13 +1946,14 @@ function openSheet(id) {
   if (!el) return;
   el.classList.remove('hidden');
   document.body.style.overflow = 'hidden';
+  if (id === 'savedViewsSheet') renderSavedViewsList();
 }
 
 function closeSheet(id) {
   const el = typeof id === 'string' ? $(id) : id;
   if (!el) return;
   el.classList.add('hidden');
-  const openSheets = [e.scopeSheet, e.runtimeSheet, e.chatConfigSheet, e.evidenceDrawer]
+  const openSheets = [e.scopeSheet, e.runtimeSheet, e.chatConfigSheet, e.evidenceDrawer, e.savedViewsSheet]
     .some(s => s && !s.classList.contains('hidden'));
   if (!openSheets) document.body.style.overflow = '';
 }
@@ -1826,6 +1986,158 @@ function syncSettingsPreview() {
   if (e.settingsRuntimePreview && e.runtimeUrl) e.settingsRuntimePreview.textContent = e.runtimeUrl.value.trim() || '—';
 }
 
+function syncSavedViewsContextLabel() {
+  const n = listSavedViewSummaries().length;
+  if (e.contextViewsLabel) e.contextViewsLabel.textContent = n ? `${n} saved` : 'Save / open';
+}
+
+function currentDisclosurePrefs() {
+  const evidenceSectionsOpen = [...document.querySelectorAll('#evidenceDisclosure details[data-evidence-section]')]
+    .filter(el => el.open)
+    .map(el => el.dataset.evidenceSection);
+  return {
+    scopePickerOpen: Boolean(e.scopePicker?.open),
+    scopeAdvancedOpen: Boolean(e.scopeAdvanced?.open),
+    stonesDetailOpen: Boolean(e.stonesDetailBlock?.open),
+    stonesRawOpen: Boolean(e.stonesRawBlock?.open),
+    authorizeArgsOpen: Boolean(e.authorizeArgsBlock?.open),
+    authorizeRawOpen: Boolean(e.authorizeRawBlock?.open),
+    workSectionsOpen: workDisclosurePrefsFromDom($('codeDisclosure')),
+    evidenceSectionsOpen
+  };
+}
+
+function applyDisclosurePrefs(disclosure = {}) {
+  if (e.scopePicker && typeof disclosure.scopePickerOpen === 'boolean') e.scopePicker.open = disclosure.scopePickerOpen;
+  if (e.scopeAdvanced && typeof disclosure.scopeAdvancedOpen === 'boolean') e.scopeAdvanced.open = disclosure.scopeAdvancedOpen;
+  if (e.stonesDetailBlock && typeof disclosure.stonesDetailOpen === 'boolean') e.stonesDetailBlock.open = disclosure.stonesDetailOpen;
+  if (e.stonesRawBlock && typeof disclosure.stonesRawOpen === 'boolean') e.stonesRawBlock.open = disclosure.stonesRawOpen;
+  if (e.authorizeArgsBlock && typeof disclosure.authorizeArgsOpen === 'boolean') e.authorizeArgsBlock.open = disclosure.authorizeArgsOpen;
+  if (e.authorizeRawBlock && typeof disclosure.authorizeRawOpen === 'boolean') e.authorizeRawBlock.open = disclosure.authorizeRawOpen;
+  if (Array.isArray(disclosure.workSectionsOpen)) {
+    applyWorkDisclosurePrefs($('codeDisclosure'), disclosure.workSectionsOpen);
+  }
+  if (Array.isArray(disclosure.evidenceSectionsOpen)) {
+    const want = new Set(disclosure.evidenceSectionsOpen);
+    document.querySelectorAll('#evidenceDisclosure details[data-evidence-section]').forEach(el => {
+      el.open = want.has(el.dataset.evidenceSection);
+    });
+  }
+}
+
+function applySavedViewPresentation(p) {
+  if (p.filters?.stonesQuery != null && e.stonesQuery) e.stonesQuery.value = p.filters.stonesQuery;
+  if (p.filters?.universeSearch != null && e.universeSearch) e.universeSearch.value = p.filters.universeSearch;
+  if (p.filters?.scopeSearch != null && e.scopeSearch) e.scopeSearch.value = p.filters.scopeSearch;
+  if (p.filters?.activityFilter != null && e.activityFilter) e.activityFilter.value = p.filters.activityFilter;
+  state.universeLod = normalizeZoom(p.universeLod || 'vault');
+  state.universeViewMode = normalizeViewMode(p.universeViewMode || 'spatial');
+  applyDisclosurePrefs(p.disclosure || {});
+  panel(p.panel || 'chat');
+  if ((p.panel || p.primary) === 'universe' || p.primary === 'universe') {
+    // Landing stays; overlay opens only if already open or user opens Bird's Eye.
+    syncUniverseLanding();
+  }
+}
+
+function showSavedViewFreshness(freshness) {
+  state.savedViewFreshness = freshness || null;
+  if (!e.savedViewFreshness) return;
+  if (!freshness) {
+    e.savedViewFreshness.classList.add('hidden');
+    e.savedViewFreshness.textContent = '';
+    return;
+  }
+  e.savedViewFreshness.classList.remove('hidden');
+  e.savedViewFreshness.textContent = freshness.message || 'Scope re-resolved on open. Saved View is not accepted-state.';
+}
+
+function renderSavedViewsList() {
+  if (!e.savedViewsList) return;
+  const store = loadSavedViewsStore();
+  if (!store.views.length) {
+    e.savedViewsList.innerHTML = '<p class="muted">No Saved Views yet. Save the current surface + Scope selectors (presentation only).</p>';
+    syncSavedViewsContextLabel();
+    return;
+  }
+  e.savedViewsList.innerHTML = '';
+  store.views.forEach(v => {
+    const row = document.createElement('div');
+    row.className = 'message-item';
+    row.innerHTML = `<strong>${esc(v.name)}</strong>
+      <div class="meta">${esc(v.presentation.primary)} · ${esc(v.presentation.panel)} · Scope ${esc(v.scopeSelector.mode)}${v.presentation.universeLod ? ` · LOD ${esc(v.presentation.universeLod)}` : ''}</div>
+      <div class="meta">Updated ${esc(v.updated_at ? new Date(v.updated_at).toLocaleString() : '—')} · selectors only</div>
+      <div class="saved-view-row-actions">
+        <button class="primary" type="button" data-open-view="${esc(v.id)}">Open</button>
+        <button class="secondary" type="button" data-delete-view="${esc(v.id)}">Delete</button>
+      </div>`;
+    row.querySelector('[data-open-view]')?.addEventListener('click', () => openSavedViewById(v.id));
+    row.querySelector('[data-delete-view]')?.addEventListener('click', () => {
+      deleteSavedView(v.id);
+      renderSavedViewsList();
+      toast('Saved View deleted');
+    });
+    e.savedViewsList.append(row);
+  });
+  syncSavedViewsContextLabel();
+}
+
+function saveCurrentSavedView() {
+  const name = (e.savedViewName?.value || '').trim();
+  if (!name) return toast('Name this Saved View');
+  try {
+    const primary = PRIMARY_BY_PANEL[state.activePanel] || 'chat';
+    upsertSavedView(captureCurrentView({
+      name,
+      scope: state.scope,
+      primary,
+      panel: state.activePanel,
+      universeLod: state.universeLod,
+      universeViewMode: state.universeViewMode,
+      filters: {
+        stonesQuery: e.stonesQuery?.value || '',
+        universeSearch: e.universeSearch?.value || '',
+        scopeSearch: e.scopeSearch?.value || '',
+        activityFilter: e.activityFilter?.value || ''
+      },
+      disclosure: currentDisclosurePrefs(),
+      scopeSnapshot: state.scopeSnapshot
+    }));
+    if (e.savedViewName) e.savedViewName.value = '';
+    renderSavedViewsList();
+    toast('Saved View stored locally (presentation only)');
+  } catch (err) {
+    toast(err.message || 'Could not save view');
+  }
+}
+
+async function openSavedViewById(id) {
+  const view = loadSavedViewsStore().views.find(v => v.id === id);
+  if (!view) return toast('Saved View not found');
+  toast('Opening Saved View… re-resolving Scope');
+  const result = await openSavedView(view, {
+    applyPresentation: applySavedViewPresentation,
+    async resolveScope(selector) {
+      // Fresh authority — never trust frozen HEADs from the Saved View payload.
+      return setScope(selector, undefined, { recordRecent: true });
+    },
+    onFreshness: (f) => {
+      showSavedViewFreshness(f);
+      if (f?.headsMayHaveMoved) openSheet('scopeSheet');
+    },
+    onError: (err) => toast(err.message || 'Open failed')
+  });
+  if (result.ok) {
+    closeSheet('savedViewsSheet');
+    if (result.freshness?.headsMayHaveMoved) {
+      toast('Scope heads may have moved — showing fresh resolve');
+    } else {
+      toast('Saved View opened · Scope re-resolved');
+    }
+    if (!e.universeOverlay.classList.contains('hidden')) renderUniverse().catch(() => {});
+  }
+}
+
 async function copy(value) { await navigator.clipboard.writeText(value); toast('Copied'); }
 
 document.querySelectorAll('.nav-item[data-nav]').forEach(t => t.addEventListener('click', () => navigatePrimary(t.dataset.nav)));
@@ -1836,6 +2148,8 @@ if (e.contextRuntimeBtn) e.contextRuntimeBtn.addEventListener('click', () => ope
 if (e.contextScopeBtn) e.contextScopeBtn.addEventListener('click', () => openSheet('scopeSheet'));
 if (e.contextActorBtn) e.contextActorBtn.addEventListener('click', () => openSheet('runtimeSheet'));
 if (e.contextSessionBtn) e.contextSessionBtn.addEventListener('click', () => panel('code'));
+if (e.contextViewsBtn) e.contextViewsBtn.addEventListener('click', () => openSheet('savedViewsSheet'));
+if (e.savedViewSave) e.savedViewSave.addEventListener('click', saveCurrentSavedView);
 if (e.settingsOpenSheet) e.settingsOpenSheet.addEventListener('click', () => openSheet('runtimeSheet'));
 if (e.runtimeSheetRecheck) e.runtimeSheetRecheck.addEventListener('click', () => health().catch(() => {}));
 if (e.universeOpenScope) e.universeOpenScope.addEventListener('click', () => openSheet('scopeSheet'));
@@ -1845,6 +2159,13 @@ if (e.openEvidenceDrawer) e.openEvidenceDrawer.addEventListener('click', openEvi
 document.querySelectorAll('[data-close-sheet]').forEach(btn => {
   btn.addEventListener('click', () => closeSheet(btn.getAttribute('data-close-sheet')));
 });
+if (e.scopeAdvanced) {
+  e.scopeAdvanced.addEventListener('toggle', () => { e.scopeAdvanced.dataset.userTouched = '1'; });
+}
+if (e.operatorToken) {
+  e.operatorToken.addEventListener('change', () => syncAuthorizeDisclosure());
+  e.operatorToken.addEventListener('input', () => syncAuthorizeDisclosure());
+}
 e.refreshModels.addEventListener('click', loadCapabilities);
 e.delegateButton.addEventListener('click', askCurrentScope);
 e.refreshInbox.addEventListener('click', refreshInbox);
@@ -1894,6 +2215,7 @@ document.addEventListener('keydown', event => {
   if (!e.universeOverlay.classList.contains('hidden')) return closeUniverse();
   if (e.evidenceDrawer && !e.evidenceDrawer.classList.contains('hidden')) return closeSheet('evidenceDrawer');
   if (e.chatConfigSheet && !e.chatConfigSheet.classList.contains('hidden')) return closeSheet('chatConfigSheet');
+  if (e.savedViewsSheet && !e.savedViewsSheet.classList.contains('hidden')) return closeSheet('savedViewsSheet');
   if (e.scopeSheet && !e.scopeSheet.classList.contains('hidden')) return closeSheet('scopeSheet');
   if (e.runtimeSheet && !e.runtimeSheet.classList.contains('hidden')) return closeSheet('runtimeSheet');
 });
@@ -1911,6 +2233,8 @@ if (codeSessionInput) {
 loadSettings();
 renderChatMode();
 syncContextBar();
+syncSavedViewsContextLabel();
+syncAuthorizeDisclosure();
 panel('chat');
 
 const inviteApi = initInvitePanel({

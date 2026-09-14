@@ -45,6 +45,10 @@
             <span class="context-k">Runtime</span>
             <span class="context-v context-runtime-v"><span id="healthDot" class="dot"></span><span id="healthText">Checking...</span></span>
           </button>
+          <button id="contextViewsBtn" class="context-pill" type="button" title="Saved Views (presentation only)">
+            <span class="context-k">Views</span>
+            <span id="contextViewsLabel" class="context-v">Save / open</span>
+          </button>
         </div>
         <button id="healthButton" class="visually-hidden" type="button" tabindex="-1" aria-hidden="true">Health</button>
       </header>
@@ -113,13 +117,35 @@
       </section>
 
       <section id="panel-evidence" class="panel">
-        <div class="card">
+        <div class="card progressive-card">
           <div class="section-heading"><div><div class="eyebrow">Independent inspection</div><h2>Evidence</h2></div><button id="copyEvidence" class="secondary" type="button" disabled>Copy JSON</button></div>
-          <div id="authoritySummary" class="evidence-grid"></div>
-          <details open><summary>Accepted / cited evidence</summary><div id="pathHeads" class="list"></div></details>
-          <details><summary>Selected skills</summary><div id="skillsList" class="list"></div></details>
-          <details><summary>Memory refs</summary><div id="memoryRefs" class="list"></div></details>
-          <details><summary>Observability / coverage</summary><pre id="observability" class="code-block">{}</pre></details>
+          <p id="evidenceHonesty" class="muted small progressive-honesty">Authority summary first. Deeper refs expand on demand. <code>response_lod</code> ≠ <code>stone_lod</code>.</p>
+          <div id="evidenceEmptyState" class="progressive-empty hidden" aria-live="polite">
+            <strong>No evidence payload yet</strong>
+            <p class="muted small">Ask in Chat or resolve Scope to inspect citations and freshness. Chat also opens an answer-linked Evidence drawer bound to the same <code>response_id</code>.</p>
+          </div>
+          <div class="progressive-step primary-step">
+            <div class="progressive-step-label">1 · Authority summary</div>
+            <div id="authoritySummary" class="evidence-grid"></div>
+          </div>
+          <div class="progressive-disclosure" id="evidenceDisclosure">
+            <details class="progressive-details" data-evidence-section="accepted" open>
+              <summary>2 · Accepted / cited evidence</summary>
+              <div id="pathHeads" class="list"></div>
+            </details>
+            <details class="progressive-details" data-evidence-section="skills">
+              <summary>3 · Selected skills</summary>
+              <div id="skillsList" class="list"></div>
+            </details>
+            <details class="progressive-details" data-evidence-section="memory">
+              <summary>4 · Memory refs / claims</summary>
+              <div id="memoryRefs" class="list"></div>
+            </details>
+            <details class="progressive-details" data-evidence-section="observability">
+              <summary>5 · Observability / coverage (raw)</summary>
+              <pre id="observability" class="code-block">{}</pre>
+            </details>
+          </div>
         </div>
       </section>
       <section id="panel-inbox" class="panel">
@@ -183,17 +209,34 @@
         </div>
       </section>
       <section id="panel-stones" class="panel">
-        <div class="card">
+        <div class="card progressive-card">
           <div class="section-heading"><div><div class="eyebrow">Scope-aware stone browser</div><h2>Stones</h2></div><button id="stonesRefresh" class="secondary" type="button">Refresh</button></div>
-          <label><span>Search current Scope</span><input id="stonesQuery"></label>
-          <div id="stonesHead" class="chips"></div>
-          <div id="stonesList" class="message-list"><p class="muted">Refresh to browse the current Scope.</p></div>
+          <p id="stonesHonesty" class="muted small progressive-honesty">Browse and search first. Title / currentness stay primary; LOD and raw refs expand after selection.</p>
+          <div class="progressive-step primary-step">
+            <div class="progressive-step-label">1 · Browse / search</div>
+            <label><span>Search current Scope</span><input id="stonesQuery"></label>
+            <div id="stonesHead" class="chips"></div>
+            <div id="stonesEmptyState" class="progressive-empty" aria-live="polite">
+              <strong>No stones loaded</strong>
+              <p class="muted small">Refresh to browse the current Scope. Multi-chain search uses <code>cairnstone_find_scope</code>.</p>
+            </div>
+            <div id="stonesList" class="message-list"><p class="muted">Refresh to browse the current Scope.</p></div>
+          </div>
         </div>
-        <div class="card">
-          <div class="eyebrow">Stone / evidence detail</div>
+        <div class="card progressive-card">
+          <div class="eyebrow">2 · Detail (on selection)</div>
           <h2 id="stoneDetailTitle">No stone selected</h2>
           <div id="stoneDetailMeta" class="chips"></div>
-          <details open><summary>Summary / preview</summary><pre id="stoneDetailSummary" class="code-block wrap">Select a stone or search match to see its summary.</pre></details>
+          <div class="progressive-disclosure" id="stonesDisclosure">
+            <details id="stonesDetailBlock" class="progressive-details" data-stones-section="detail" open>
+              <summary>Summary / preview</summary>
+              <pre id="stoneDetailSummary" class="code-block wrap">Select a stone or search match to see its summary.</pre>
+            </details>
+            <details id="stonesRawBlock" class="progressive-details" data-stones-section="raw">
+              <summary>Raw LOD / refs</summary>
+              <pre id="stoneDetailRaw" class="code-block wrap">Raw LOD fields and refs appear here after selection. stone_lod is storage LOD — not Answer Depth response_lod.</pre>
+            </details>
+          </div>
           <button id="copyStoneHash" class="secondary" type="button" disabled>Copy hash</button>
         </div>
       </section>
@@ -230,33 +273,33 @@
               <button id="codeProposeMerge" class="primary compact-button" type="button" disabled>Propose / Merge</button>
             </div>
             <div class="work-disclosure" id="codeDisclosure">
-              <details class="work-details">
+              <details class="work-details" data-section="actors">
                 <summary>Actors <span id="codeActorsSummary" class="work-summary-hint"></span></summary>
                 <div id="codeActors" class="code-actors">—</div>
                 <div id="codeLeases" class="muted small work-inline-note"></div>
               </details>
-              <details class="work-details">
+              <details class="work-details" data-section="tests">
                 <summary>Tests <span id="codeTestsSummary" class="work-summary-hint"></span></summary>
                 <div id="codeTests" class="code-block-value">—</div>
               </details>
-              <details class="work-details">
+              <details class="work-details" data-section="working_tree">
                 <summary>Working tree <span id="codeWorkingTreeSummary" class="work-summary-hint"></span></summary>
                 <div id="codeWorkingTree" class="code-block-value">—</div>
               </details>
-              <details class="work-details">
+              <details class="work-details" data-section="checkpoints">
                 <summary>Checkpoints <span id="codeCheckpointsSummary" class="work-summary-hint"></span></summary>
                 <div id="codeCheckpointsHint" class="muted small">Use <strong>Checkpoints</strong> for the authoritative list from <code>cairnstone_code_checkpoint_list</code>.</div>
               </details>
-              <details class="work-details">
+              <details class="work-details" data-section="environment">
                 <summary>Environment / sandbox <span id="codeEnvSummary" class="work-summary-hint"></span></summary>
                 <div id="codeEnvironment" class="code-block-value">—</div>
                 <div id="codeSandbox" class="muted small work-inline-note"></div>
               </details>
-              <details class="work-details">
+              <details class="work-details" data-section="receipts">
                 <summary>Receipts <span id="codeReceiptsSummary" class="work-summary-hint"></span></summary>
                 <div id="codeReceipts" class="muted small">None in snapshot unless reported by console view.</div>
               </details>
-              <details class="work-details">
+              <details class="work-details" data-section="actions">
                 <summary>Action catalog <span class="work-summary-hint">existing APIs only</span></summary>
                 <div id="codeActionCatalog" class="work-action-catalog"></div>
                 <p class="muted small">Invite = V7.7.6 invite plane; Propose/Merge = <code>cairnstone_workspace_propose_accept</code> only. No silent Chat/Authorize merge.</p>
@@ -361,19 +404,40 @@ grok-bot:cairnstone-v6</textarea></label>
         </div>
       </section>
       <section id="panel-authorize" class="panel">
-        <div class="card">
-          <div class="section-heading"><div><div class="eyebrow">V7.3.3 trusted human boundary</div><h2>Authorization history</h2></div><button id="authorizationRefresh" class="secondary" type="button">Refresh</button></div>
-          <p class="muted small">This surface is outside the model-callable MCP tool catalog. Approval is bound to one immutable request and uses a separate operator bearer token kept only in this browser session.</p>
-          <label><span>Operator token</span><input id="operatorToken" type="password" autocomplete="off" placeholder="CAIRNSTONE_OPERATOR_TOKEN"></label>
-          <div id="authorizationList" class="message-list"><p class="muted">Enter the operator token and refresh to load pending and completed requests.</p></div>
+        <div class="card progressive-card authorize-card">
+          <div class="section-heading"><div><div class="eyebrow">V7.3.3 trusted human boundary</div><h2>Authorize</h2></div><button id="authorizationRefresh" class="secondary" type="button">Refresh</button></div>
+          <p id="authorizeHonesty" class="muted small progressive-honesty">Material effect first. Exact arguments and provenance stay one drill-down away. Operator bearer is session-only — never Saved Views, never stones.</p>
+          <div class="progressive-step primary-step">
+            <div class="progressive-step-label">1 · Operator session</div>
+            <label><span>Operator token</span><input id="operatorToken" type="password" autocomplete="off" placeholder="CAIRNSTONE_OPERATOR_TOKEN"></label>
+          </div>
+          <div class="progressive-step primary-step">
+            <div class="progressive-step-label">2 · Authorization history</div>
+            <div id="authorizationEmptyState" class="progressive-empty" aria-live="polite">
+              <strong>Enter token and refresh</strong>
+              <p class="muted small">This surface is outside the model-callable MCP tool catalog.</p>
+            </div>
+            <div id="authorizationList" class="message-list"><p class="muted">Enter the operator token and refresh to load pending and completed requests.</p></div>
+          </div>
         </div>
-        <div class="card">
-          <div class="eyebrow">Exact immutable request</div>
+        <div class="card progressive-card authorize-card">
+          <div class="eyebrow">3 · Selected request</div>
           <h2 id="authorizationTitle">No authorization selected</h2>
           <div id="authorizationMeta" class="chips"></div>
-          <div id="authorizationSummary" class="evidence-grid"></div>
-          <details open><summary>Exact stored arguments</summary><pre id="authorizationArguments" class="code-block wrap">Select an authorization record.</pre></details>
-          <details><summary>Immutable request / provenance</summary><pre id="authorizationRaw" class="code-block wrap">{}</pre></details>
+          <div class="progressive-step primary-step">
+            <div class="progressive-step-label">Material effect</div>
+            <div id="authorizationSummary" class="evidence-grid"></div>
+          </div>
+          <div class="progressive-disclosure" id="authorizeDisclosure">
+            <details id="authorizeArgsBlock" class="progressive-details" data-authorize-section="args" open>
+              <summary>4 · Exact stored arguments</summary>
+              <pre id="authorizationArguments" class="code-block wrap">Select an authorization record.</pre>
+            </details>
+            <details id="authorizeRawBlock" class="progressive-details" data-authorize-section="raw">
+              <summary>5 · Immutable request / provenance</summary>
+              <pre id="authorizationRaw" class="code-block wrap">{}</pre>
+            </details>
+          </div>
           <div class="two-col">
             <button id="authorizationReject" class="secondary" type="button" disabled>Reject</button>
             <button id="authorizationApprove" class="primary" type="button" disabled>Approve & Execute</button>
@@ -393,11 +457,12 @@ grok-bot:cairnstone-v6</textarea></label>
             <div class="evidence-item"><span class="muted small">Runtime</span><strong id="settingsRuntimePreview" class="wrap-anywhere">—</strong></div>
           </div>
           <p class="muted small">Operator bearer remains only on Authorize (sessionStorage). Workspace capabilities stay in Work / Invite flows and are never stoned.</p>
+          <p class="muted small">Saved Views (context bar → Views) store selectors/presentation in localStorage only and re-resolve Scope on open.</p>
         </div>
       </section>
       </main>
 
-      <footer>V7.7.9d Console · Chat · Work · Universe · Inbox · More · Scope is navigation/retrieval context, never synthetic global authority · accepted state remains in CairnStone</footer>
+      <footer>V7.7.9e Console · Chat · Work · Universe · Inbox · More · Saved Views = presentation only · Scope is navigation/retrieval context, never synthetic global authority · accepted state remains in CairnStone</footer>
     </div>
 
     <nav class="nav-bottom" aria-label="Primary mobile">
@@ -416,10 +481,15 @@ grok-bot:cairnstone-v6</textarea></label>
         <div><div class="eyebrow">Global workspace</div><h2 id="scopeSheetTitle">Scope</h2></div>
         <button class="secondary" type="button" data-close-sheet="scopeSheet">Close</button>
       </header>
-      <div class="sheet-body">
-        <div class="scope-status">
-          <strong id="scopeSummary">Loading Scope...</strong>
-          <span id="scopeAuthority" class="muted small">Resolving accepted chain HEAD snapshot.</span>
+      <div class="sheet-body progressive-card">
+        <p class="muted small progressive-honesty">Compact identity first. Browse and diagnostics expand on demand. Opening a Saved View always re-resolves this snapshot.</p>
+        <div class="progressive-step primary-step">
+          <div class="progressive-step-label">1 · Scope identity</div>
+          <div class="scope-status">
+            <strong id="scopeSummary">Loading Scope...</strong>
+            <span id="scopeAuthority" class="muted small">Resolving accepted chain HEAD snapshot.</span>
+          </div>
+          <div id="savedViewFreshness" class="scope-caveat hidden" role="status"></div>
         </div>
         <div class="scope-tools">
           <label class="scope-search"><span>Find repository or chain</span><input id="scopeSearch" type="search" placeholder="Search CairnStone..."></label>
@@ -432,12 +502,43 @@ grok-bot:cairnstone-v6</textarea></label>
           <span class="muted small">Recent</span>
           <div id="scopeRecents" class="chips"></div>
         </div>
-        <details id="scopePicker" open>
-          <summary>Browse repositories and chains</summary>
-          <div id="scopeCatalog" class="scope-catalog"><p class="muted">Loading catalog...</p></div>
-        </details>
-        <div id="scopeCoverage" class="muted small"></div>
-        <p class="muted small">Bird's Eye / Universe projection remains available from the Universe primary surface.</p>
+        <div class="progressive-disclosure">
+          <details id="scopePicker" class="progressive-details">
+            <summary>2 · Browse repositories and chains</summary>
+            <div id="scopeCatalog" class="scope-catalog"><p class="muted">Loading catalog...</p></div>
+          </details>
+          <details id="scopeAdvanced" class="progressive-details">
+            <summary>3 · Coverage / diagnostics</summary>
+            <div id="scopeCoverage" class="muted small"></div>
+            <p class="muted small">Bird's Eye / Universe projection remains available from the Universe primary surface.</p>
+          </details>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="savedViewsSheet" class="sheet hidden" role="dialog" aria-modal="true" aria-labelledby="savedViewsSheetTitle">
+    <div class="sheet-backdrop" data-close-sheet="savedViewsSheet"></div>
+    <div class="sheet-panel">
+      <header class="sheet-header">
+        <div>
+          <div class="eyebrow">Navigation convenience</div>
+          <h2 id="savedViewsSheetTitle">Saved Views</h2>
+        </div>
+        <button class="secondary" type="button" data-close-sheet="savedViewsSheet">Close</button>
+      </header>
+      <div class="sheet-body">
+        <p class="muted small">Stores selectors and presentation prefs in this browser only. Opening re-resolves Scope via <code>cairnstone_resolve_scope</code>. Never freezes HEADs, never stores secrets, never accepted project truth.</p>
+        <div class="progressive-step primary-step">
+          <div class="progressive-step-label">Save current view</div>
+          <label><span>Name</span><input id="savedViewName" maxlength="80" placeholder="e.g. Platform · Universe list" autocomplete="off"></label>
+          <button id="savedViewSave" class="primary" type="button">Save view</button>
+        </div>
+        <div class="progressive-step">
+          <div class="progressive-step-label">Open / manage</div>
+          <div id="savedViewsList" class="message-list" aria-live="polite"><p class="muted">No Saved Views yet.</p></div>
+        </div>
+        <p id="savedViewsNote" class="scope-caveat">Saved Views ≠ accepted project truth. <code>response_lod</code> stays distinct from <code>stone_lod</code>.</p>
       </div>
     </div>
   </div>

@@ -219,6 +219,28 @@ footer{color:#657083;text-align:center;font-size:.68rem;padding:16px 0 0}
 .drawer-depth-controls{margin-bottom:8px}
 #chatConfigSheet .scope-caveat{margin-top:0}
 
+/* V7.7.9e Progressive disclosure + Saved Views */
+.progressive-honesty{margin:0 0 12px;line-height:1.45}
+.progressive-step{margin:0 0 14px}
+.progressive-step-label{font-size:.68rem;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:8px}
+.primary-step .progressive-step-label{color:var(--accent2)}
+.progressive-disclosure{display:grid;gap:8px;margin-top:8px}
+.progressive-details{border:1px solid var(--line);border-radius:12px;background:var(--surface2);padding:0 12px}
+.progressive-details>summary{cursor:pointer;list-style:none;min-height:44px;display:flex;align-items:center;gap:8px;font-weight:750;font-size:.88rem}
+.progressive-details>summary::-webkit-details-marker{display:none}
+.progressive-details[open]>summary{border-bottom:1px solid var(--line);margin-bottom:10px;padding-bottom:8px}
+.progressive-empty{margin:8px 0 12px;padding:12px 14px;border:1px dashed var(--line);border-radius:12px;background:rgba(139,184,255,.05)}
+.progressive-empty strong{display:block;margin-bottom:4px}
+.progressive-empty p{margin:0}
+.progressive-empty.hidden,.hidden.progressive-empty{display:none}
+.authorize-card{border-color:rgba(255,180,120,.28)}
+.authorize-card .progressive-step-label{color:rgba(255,180,120,.95)}
+#savedViewFreshness{margin-top:10px}
+#savedViewsList .message-item{display:grid;gap:6px;text-align:left}
+.saved-view-row-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
+.saved-view-row-actions .secondary,.saved-view-row-actions .primary{width:auto;flex:0 0 auto;min-height:36px;padding:6px 12px;font-size:.78rem}
+#contextViewsBtn .context-v{max-width:7rem}
+
 @media(min-width:860px){
   .app-shell{grid-template-columns:var(--rail-w) minmax(0,1fr);max-width:1280px;margin:0 auto}
   .nav-rail{display:flex;flex-direction:column;gap:6px;position:sticky;top:0;align-self:start;height:100vh;height:100dvh;padding:16px 10px;border-right:1px solid var(--line);background:rgba(12,16,22,.72);backdrop-filter:blur(10px)}
