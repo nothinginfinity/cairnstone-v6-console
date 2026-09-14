@@ -22,8 +22,8 @@ test('legacy capabilities remain reachable as panels or sheets', () => {
   for (const id of [
     'panel-chat', 'panel-code', 'panel-universe', 'panel-inbox', 'panel-handoff', 'panel-activity',
     'panel-stones', 'panel-evidence', 'panel-authorize', 'panel-invite', 'panel-settings',
-    'scopeSheet', 'runtimeSheet', 'universeOverlay',
-    'answerDepthControls', 'codeSessionId', 'operatorToken', 'taskInput'
+    'scopeSheet', 'runtimeSheet', 'chatConfigSheet', 'evidenceDrawer', 'universeOverlay',
+    'answerDepthControls', 'codeSessionId', 'operatorToken', 'taskInput', 'openChatConfig', 'openEvidenceDrawer'
   ]) {
     assert.match(html, new RegExp(`id="${id}"`));
   }
@@ -48,6 +48,23 @@ test('navigation mapping keeps Work→code and More/Inbox sub-routes', () => {
 test('context bar sync helpers exist without inventing authority APIs', () => {
   assert.match(app, /function syncContextBar/);
   assert.match(app, /function openSheet/);
+  assert.match(app, /chatConfigSheet/);
+  assert.match(app, /evidenceDrawer/);
+  assert.match(app, /openEvidenceDrawerForResult/);
   assert.doesNotMatch(app, /accepted_state_authority:\s*true/);
   assert.doesNotMatch(html, /Bearer [A-Za-z0-9._-]{20,}/);
+});
+
+test('Chat first paint keeps route/model in config sheet, not primary Ask card', () => {
+  const chatStart = html.indexOf('id="panel-chat"');
+  const chatEnd = html.indexOf('id="panel-universe"');
+  const chat = html.slice(chatStart, chatEnd);
+  assert.match(chat, /id="answerDepthDefaults"/);
+  assert.match(chat, /id="answerDepthControls"/);
+  assert.match(chat, /id="openChatConfig"/);
+  assert.doesNotMatch(chat, /id="providerSelect"/);
+  assert.doesNotMatch(chat, /id="modelSelect"/);
+  assert.doesNotMatch(chat, /id="runtimeUrl"/);
+  assert.match(html, /id="chatConfigSheet"/);
+  assert.match(html, /id="providerSelect"/);
 });

@@ -16,6 +16,12 @@ import {
   setThreadDefaultDepth,
   staleActionsFromPayload
 } from './answer-depth.js';
+import {
+  canOpenEvidenceDrawer,
+  chatConfigState,
+  evidenceDrawerModel,
+  evidenceDrawerSummary
+} from './chat-evidence.js';
 
 const DEFAULT_RUNTIME = 'https://cairnstone-v6.jaredtechfit.workers.dev/mcp';
 const DEFAULT_CHAIN = 'cairnstone-v6-project-memory';
@@ -72,9 +78,13 @@ const e = {
   contextScopeBtn: $('contextScopeBtn'), contextActorBtn: $('contextActorBtn'), contextSessionBtn: $('contextSessionBtn'), contextRuntimeBtn: $('contextRuntimeBtn'),
   contextScopeLabel: $('contextScopeLabel'), contextActorLabel: $('contextActorLabel'), contextSessionLabel: $('contextSessionLabel'),
   inboxSubnav: $('inboxSubnav'), moreSubnav: $('moreSubnav'),
-  scopeSheet: $('scopeSheet'), runtimeSheet: $('runtimeSheet'),
+  scopeSheet: $('scopeSheet'), runtimeSheet: $('runtimeSheet'), chatConfigSheet: $('chatConfigSheet'), evidenceDrawer: $('evidenceDrawer'),
   settingsOpenSheet: $('settingsOpenSheet'), settingsActorPreview: $('settingsActorPreview'), settingsRuntimePreview: $('settingsRuntimePreview'),
   runtimeSheetRecheck: $('runtimeSheetRecheck'),
+  openChatConfig: $('openChatConfig'), openEvidenceDrawer: $('openEvidenceDrawer'),
+  chatConfigHonesty: $('chatConfigHonesty'), chatConfigRouteNote: $('chatConfigRouteNote'),
+  chatCapabilityHonesty: $('chatCapabilityHonesty'), evidenceDrawerHint: $('evidenceDrawerHint'),
+  evidenceDrawerTitle: $('evidenceDrawerTitle'), evidenceDrawerSubtitle: $('evidenceDrawerSubtitle'), evidenceDrawerBody: $('evidenceDrawerBody'),
   scopeSummary: $('scopeSummary'), scopeAuthority: $('scopeAuthority'), scopeCoverage: $('scopeCoverage'), scopeSearch: $('scopeSearch'), scopeAll: $('scopeAll'), scopeDefault: $('scopeDefault'),
   scopeRecentsWrap: $('scopeRecentsWrap'), scopeRecents: $('scopeRecents'), scopeCatalog: $('scopeCatalog'), scopePicker: $('scopePicker'),
   universeLandingSummary: $('universeLandingSummary'), universeLandingAuthority: $('universeLandingAuthority'),
@@ -406,32 +416,50 @@ function updateScopeDependents() {
 function renderChatMode() {
   const scopeResolved = Boolean(state.scopeSnapshot);
   const single = state.scope.mode === 'single_chain' && (!scopeResolved || (state.scopeSnapshot?.chains?.length || 0) === 1);
-  const toolDelegate = Boolean(single && e.toolDelegate?.checked);
+  const toolDelegateWanted = Boolean(e.toolDelegate?.checked);
+  const toolDelegate = Boolean(single && toolDelegateWanted);
+  const cfg = chatConfigState({ single, toolDelegate, scopeResolved });
 
-  // Keep Chat configuration spatially stable while Scope resolves or changes.
-  // Progressive Answer Depth uses cairnstone_grounded_response* (no provider/temp/inbox).
-  // Optional single-chain tool delegation restores cairnstone_delegate controls.
-  e.singleChainRouteControls.classList.remove('hidden');
-  e.temperatureWrap.classList.remove('hidden');
-  e.includeInboxWrap.classList.remove('hidden');
-  e.refreshModels.classList.remove('hidden');
-  if (e.toolDelegateWrap) e.toolDelegateWrap.classList.toggle('hidden', !single);
-
-  [e.providerSelect, e.modelSelect, e.credentialAlias, e.temperature, e.includeInbox, e.refreshModels].forEach(control => {
-    if (control) control.disabled = !toolDelegate;
-  });
-
-  if (toolDelegate) {
-    const chain = state.scopeSnapshot?.chains?.[0]?.chain || state.scope.chains?.[0] || DEFAULT_CHAIN;
-    e.chatModeNote.textContent = `Single-chain tool delegation · cairnstone_delegate grounded in ${chain}. Answer Depth LOD controls are inactive on this path.`;
-  } else if (single) {
-    const chain = state.scopeSnapshot?.chains?.[0]?.chain || state.scope.chains?.[0] || DEFAULT_CHAIN;
-    e.chatModeNote.textContent = `Progressive Answer Depth · cairnstone_grounded_response on ${chain} (default response_lod 1; expand same response_id). Distinct from stone_lod. Optional tool delegation remains available above.`;
-  } else {
-    const n = state.scopeSnapshot?.chains?.length || 0;
-    e.chatModeNote.textContent = `Progressive Answer Depth · cairnstone_grounded_response across the exact ${n}-chain Scope authority snapshot (replaces unconstrained ask_scope for Chat answers). Provider/model controls stay visible but inactive. No HEAD mutation · accepted_state_authority false.`;
+  // Route/model knobs live in Chat config sheet — first paint prioritizes Ask + depth.
+  // Keep controls mounted (visible+disabled when inactive) for spatial stability.
+  if (e.singleChainRouteControls) e.singleChainRouteControls.classList.remove('hidden');
+  if (e.temperatureWrap) e.temperatureWrap.classList.remove('hidden');
+  if (e.includeInboxWrap) e.includeInboxWrap.classList.remove('hidden');
+  if (e.refreshModels) e.refreshModels.classList.remove('hidden');
+  if (e.toolDelegateWrap) {
+    e.toolDelegateWrap.classList.remove('hidden');
+    e.toolDelegateWrap.classList.toggle('blocked', !cfg.toolDelegateAvailable);
+    if (e.toolDelegate) e.toolDelegate.disabled = !cfg.toolDelegateAvailable;
   }
+
+  [e.providerSelect, e.modelSelect, e.credentialAlias, e.temperature, e.includeInbox].forEach(control => {
+    if (control) control.disabled = !cfg.routeControlsEnabled;
+  });
+  if (e.outputTokens) e.outputTokens.disabled = false;
+  if (e.refreshModels) e.refreshModels.disabled = false;
+
+  const chain = state.scopeSnapshot?.chains?.[0]?.chain || state.scope.chains?.[0] || DEFAULT_CHAIN;
+  const n = state.scopeSnapshot?.chains?.length || 0;
+  if (e.chatModeNote) {
+    if (!scopeResolved) {
+      e.chatModeNote.textContent = 'Resolving Scope… Ask + Answer Depth stay ready; Chat config holds route/model knobs.';
+    } else if (cfg.routeActive) {
+      e.chatModeNote.textContent = `Tool delegation · cairnstone_delegate on ${chain}. Answer Depth LOD inactive on this path.`;
+    } else if (single) {
+      e.chatModeNote.textContent = `Answer Depth · cairnstone_grounded_response on ${chain} (LOD 1→5, same response_id). Distinct from stone_lod.`;
+    } else {
+      e.chatModeNote.textContent = `Answer Depth · cairnstone_grounded_response across ${n}-chain Scope. Tool delegation blocked for multi-chain. accepted_state_authority false.`;
+    }
+  }
+  if (e.chatCapabilityHonesty) {
+    e.chatCapabilityHonesty.textContent = cfg.toolDelegateAvailable
+      ? 'Single-chain Scope: optional tool delegation available via checkbox (and Chat config).'
+      : 'Multi-chain / vault Scope: cairnstone_delegate is blocked — grounded Answer Depth only.';
+  }
+  if (e.chatConfigHonesty) e.chatConfigHonesty.textContent = cfg.honesty;
+  if (e.chatConfigRouteNote) e.chatConfigRouteNote.textContent = cfg.routeNote;
   renderAnswerDepthDefaults();
+  syncEvidenceDrawerCta();
 }
 
 async function loadCapabilities() {
@@ -443,7 +471,7 @@ async function loadCapabilities() {
   } catch (err) {
     toast(err.message);
   } finally {
-    busy(e.refreshModels, false, 'Models');
+    busy(e.refreshModels, false, 'Refresh models');
     renderChatMode();
   }
 }
@@ -670,6 +698,85 @@ function clearAnswerDepthUi({ keepStale = false } = {}) {
     e.staleActions.classList.add('hidden');
     e.staleActions.innerHTML = '';
   }
+  syncEvidenceDrawerCta();
+}
+
+function syncEvidenceDrawerCta(r = state.lastResult) {
+  const openable = canOpenEvidenceDrawer(r);
+  if (e.openEvidenceDrawer) e.openEvidenceDrawer.disabled = !openable;
+  if (e.evidenceDrawerHint) {
+    if (openable) {
+      e.evidenceDrawerHint.classList.remove('hidden');
+      e.evidenceDrawerHint.textContent = evidenceDrawerSummary(r);
+    } else {
+      e.evidenceDrawerHint.classList.add('hidden');
+      e.evidenceDrawerHint.textContent = '';
+    }
+  }
+}
+
+function renderEvidenceDrawerBody(r = state.lastResult) {
+  const model = evidenceDrawerModel(r);
+  if (e.evidenceDrawerTitle) e.evidenceDrawerTitle.textContent = model.title;
+  if (e.evidenceDrawerSubtitle) e.evidenceDrawerSubtitle.textContent = model.subtitle;
+  if (!e.evidenceDrawerBody) return;
+  if (!model.openable) {
+    e.evidenceDrawerBody.innerHTML = `<p class="muted">${esc(model.subtitle)}</p>`;
+    return;
+  }
+
+  e.evidenceDrawerBody.innerHTML = model.sections.map(section => {
+    if (section.kind === 'kv') {
+      return `<section class="evidence-drawer-section">
+        <h3>${esc(section.title)}</h3>
+        <div class="evidence-grid">${section.rows.map(([k, v]) => evidenceCell([k, v])).join('')}</div>
+      </section>`;
+    }
+    if (section.kind === 'list') {
+      const body = section.items.length
+        ? `<div class="list">${section.items.map(item => `<div class="list-item"><strong>${esc(item.title)}</strong><br>${esc(item.detail || '')}</div>`).join('')}</div>`
+        : `<p class="muted small">${esc(section.empty || 'None')}</p>`;
+      return `<section class="evidence-drawer-section"><h3>${esc(section.title)}</h3>${body}</section>`;
+    }
+    if (section.kind === 'depth') {
+      const buttons = [];
+      for (let lod = section.min; lod <= section.max; lod += 1) {
+        const active = lod === section.currentLod ? 'active' : '';
+        buttons.push(`<button type="button" class="lod-btn ${active}" data-drawer-lod="${lod}" title="${esc(responseLodLabel(lod))}">${lod === 1 ? 'LOD 1' : lod}</button>`);
+      }
+      return `<section class="evidence-drawer-section">
+        <h3>${esc(section.title)}</h3>
+        <p class="muted small">${esc(section.note)}</p>
+        <div class="answer-depth-controls drawer-depth-controls">${buttons.join('')}</div>
+        <div class="invite-actions">
+          <button type="button" class="secondary" data-drawer-action="more-evidence">Open Evidence explorer</button>
+        </div>
+      </section>`;
+    }
+    return '';
+  }).join('');
+
+  e.evidenceDrawerBody.querySelectorAll('[data-drawer-lod]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const lod = Number(btn.dataset.drawerLod);
+      const fresh = r.authority_freshness || {};
+      const stale = fresh.stale === true;
+      closeSheet('evidenceDrawer');
+      expandGroundedResponse(lod, { viewOriginal: stale && fresh.viewed_original_snapshot === true }).catch(() => {});
+    });
+  });
+  e.evidenceDrawerBody.querySelectorAll('[data-drawer-action="more-evidence"]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      closeSheet('evidenceDrawer');
+      panel('evidence');
+    });
+  });
+}
+
+function openEvidenceDrawerForResult() {
+  if (!canOpenEvidenceDrawer(state.lastResult)) return toast('Ask for a grounded answer first');
+  renderEvidenceDrawerBody(state.lastResult);
+  openSheet('evidenceDrawer');
 }
 
 function renderAuthorityStrip(r) {
@@ -766,6 +873,7 @@ function renderResult(r) {
       e.staleActions.classList.add('hidden');
       e.staleActions.innerHTML = '';
     }
+    syncEvidenceDrawerCta(r);
   } else if (r?.schema === 'cairnstone-scope-answer-v1') {
     clearAnswerDepthUi();
     e.resultTitle.textContent = `Scope Q&A · ${r.model || 'Workers AI'}`;
@@ -777,6 +885,7 @@ function renderResult(r) {
       ['citations', r.citation_validation?.ok === true ? 'validated' : 'unknown'],
       ['coverage', r.coverage?.complete === true ? 'complete' : 'bounded']
     ].map(([k, v]) => chip(`${k}: ${v}`)).join('');
+    syncEvidenceDrawerCta(null);
   } else {
     clearAnswerDepthUi();
     e.resultTitle.textContent = `${r.route?.provider || 'model'} · ${r.route?.model || 'unknown'}`;
@@ -788,6 +897,7 @@ function renderResult(r) {
       ['output', tok(r.usage?.output_tokens)],
       ['tools', String(r.policy?.tools_executed ?? 0)]
     ].map(([k, v]) => chip(`${k}: ${v}`)).join('');
+    syncEvidenceDrawerCta(null);
   }
   e.copyResult.disabled = false;
 }
@@ -1348,9 +1458,9 @@ function closeSheet(id) {
   const el = typeof id === 'string' ? $(id) : id;
   if (!el) return;
   el.classList.add('hidden');
-  if (![e.scopeSheet, e.runtimeSheet].some(s => s && !s.classList.contains('hidden'))) {
-    document.body.style.overflow = '';
-  }
+  const openSheets = [e.scopeSheet, e.runtimeSheet, e.chatConfigSheet, e.evidenceDrawer]
+    .some(s => s && !s.classList.contains('hidden'));
+  if (!openSheets) document.body.style.overflow = '';
 }
 
 function syncContextBar({ scopePending = false } = {}) {
@@ -1392,6 +1502,8 @@ if (e.settingsOpenSheet) e.settingsOpenSheet.addEventListener('click', () => ope
 if (e.runtimeSheetRecheck) e.runtimeSheetRecheck.addEventListener('click', () => health().catch(() => {}));
 if (e.universeOpenScope) e.universeOpenScope.addEventListener('click', () => openSheet('scopeSheet'));
 if (e.universeOpenRuntime) e.universeOpenRuntime.addEventListener('click', () => openSheet('runtimeSheet'));
+if (e.openChatConfig) e.openChatConfig.addEventListener('click', () => openSheet('chatConfigSheet'));
+if (e.openEvidenceDrawer) e.openEvidenceDrawer.addEventListener('click', openEvidenceDrawerForResult);
 document.querySelectorAll('[data-close-sheet]').forEach(btn => {
   btn.addEventListener('click', () => closeSheet(btn.getAttribute('data-close-sheet')));
 });
@@ -1434,6 +1546,8 @@ e.universeApply.addEventListener('click', applyUniverseMulti);
 document.addEventListener('keydown', event => {
   if (event.key !== 'Escape') return;
   if (!e.universeOverlay.classList.contains('hidden')) return closeUniverse();
+  if (e.evidenceDrawer && !e.evidenceDrawer.classList.contains('hidden')) return closeSheet('evidenceDrawer');
+  if (e.chatConfigSheet && !e.chatConfigSheet.classList.contains('hidden')) return closeSheet('chatConfigSheet');
   if (e.scopeSheet && !e.scopeSheet.classList.contains('hidden')) return closeSheet('scopeSheet');
   if (e.runtimeSheet && !e.runtimeSheet.classList.contains('hidden')) return closeSheet('runtimeSheet');
 });

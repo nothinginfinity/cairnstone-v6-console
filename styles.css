@@ -139,6 +139,21 @@ footer{color:#657083;text-align:center;font-size:.68rem;padding:16px 0 0}
 .stale-actions .secondary{width:auto}
 .result-card .prose{font-size:.95rem}
 
+/* V7.7.9b Chat + contextual evidence */
+.chat-ask-card .chat-mode-note{margin:0 0 10px;line-height:1.45}
+.chat-capability-row.blocked{opacity:.72}
+.chat-capability-row.blocked input{cursor:not-allowed}
+.chat-capability-honesty{margin:-4px 0 14px;line-height:1.4}
+.result-heading-actions{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
+.result-heading-actions .secondary{width:auto}
+.evidence-drawer-hint{margin:10px 0 0;line-height:1.4}
+.evidence-drawer-panel{width:min(720px,100%)}
+.evidence-drawer-body{display:grid;gap:16px}
+.evidence-drawer-section h3{margin:0 0 8px;font-size:.92rem}
+.evidence-drawer-section .answer-depth-controls{margin-top:8px;padding-top:0;border-top:0}
+.drawer-depth-controls{margin-bottom:8px}
+#chatConfigSheet .scope-caveat{margin-top:0}
+
 @media(min-width:860px){
   .app-shell{grid-template-columns:var(--rail-w) minmax(0,1fr);max-width:1280px;margin:0 auto}
   .nav-rail{display:flex;flex-direction:column;gap:6px;position:sticky;top:0;align-self:start;height:100vh;height:100dvh;padding:16px 10px;border-right:1px solid var(--line);background:rgba(12,16,22,.72);backdrop-filter:blur(10px)}
@@ -162,5 +177,6 @@ footer{color:#657083;text-align:center;font-size:.68rem;padding:16px 0 0}
   .code-actions .primary.compact-button,.code-actions .secondary{flex:1 1 auto;min-width:0}
   .answer-depth-controls{gap:10px}.lod-btn{min-width:44px;min-height:44px}
   .context-v{max-width:18rem}
+  .chat-ask-card textarea{min-height:7.5rem}
 }
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}.universe-node,.toast{transition:none}}
