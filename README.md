@@ -2,6 +2,17 @@
 
 A thin, provider-neutral browser client for the live CairnStone V7 runtime.
 
+## V7.7.8c Answer Depth
+
+Chat answers default to progressive **Answer Depth** (`response_lod` 1→5) via `cairnstone_grounded_response*`:
+
+- compact LOD 1 cards by default; deeper levels expand the same `response_id`;
+- LOD controls, authority/evidence strip, and stale **View original** / **Refresh** actions;
+- NL commands such as `LOD 3 that.` and per-thread / per-Code-Session presentation defaults (localStorage only — not accepted authority);
+- optional single-chain **tool delegation** checkbox restores `cairnstone_delegate` when needed.
+
+`response_lod` is never confused with Stone storage `stone_lod`. See `docs/V7_7_8C_CONSOLE_ANSWER_DEPTH.md`.
+
 ## V7.7.7f Persistent Code Mode
 
 The **Code** tab is an operator surface for one durable Code Session (not a single model chat):
@@ -20,7 +31,7 @@ V7.7.3 turns the previous single-Chain Console into a shared multi-repository / 
 - one global **Scope** control resolves the existing `cairnstone-scope-v1` selectors (`single_chain`, `repo`, `multi`, `vault`);
 - the catalog comes from `cairnstone_vault_catalog`; the resolved authority snapshot comes from `cairnstone_resolve_scope`;
 - list selection supports searchable repository grouping, child chains, explicit multi-select, recents, and `All CairnStone`;
-- Chat uses the existing single-chain `cairnstone_delegate` path for one-chain Scope and `cairnstone_ask_scope` for multi/repo/vault grounded Q&A;
+- Chat uses progressive Answer Depth (`cairnstone_grounded_response`) by default; optional single-chain tool delegation keeps `cairnstone_delegate`;
 - Evidence renders the exact resolved Scope identity plus citation/coverage evidence returned by the runtime;
 - Stones uses single-chain listing when narrowed to one chain and `cairnstone_find_scope` for cross-Scope search;
 - Handoff association is explicit: the human chooses one exact participating chain because AC1 handoffs carry one chain field;
@@ -55,12 +66,18 @@ python3 -m http.server 8080
 
 Then open `http://localhost:8080`.
 
+Unit tests for Answer Depth helpers:
+
+```bash
+node --test answer-depth.test.js
+```
+
 ## Operator setup
 
 Set a strong Worker secret named `CAIRNSTONE_OPERATOR_TOKEN` on `cairnstone-v6`. Do **not** put it in this repository or any model prompt. The human operator enters it in the Authorize tab for the browser session only.
 
 ## Authority model
 
-The Console is a client, not a source of accepted state. Scope is navigation/retrieval context only. CairnStone chain/path HEADs remain canonical authority. AC1 handoff messages are immutable correspondence artifacts and transport intent only.
+The Console is a client, not a source of accepted state. Scope is navigation/retrieval context only. CairnStone chain/path HEADs remain canonical authority. AC1 handoff messages are immutable correspondence artifacts and transport intent only. Answer Depth presentation defaults are local UI state only.
 
 The optional GitHub inbox mirror is transport-only. The browser sends only the target owner/repo/branch/path prefix to CairnStone; GitHub credentials remain server-side in the runtime. A mirror artifact records its AC1 stone hash and explicitly carries zero execution, mutation, external-mirror, or accepted-state authority.
