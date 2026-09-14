@@ -1,15 +1,35 @@
 import { initInvitePanel } from './invite.js';
 import { initCodeSessionPanel } from './code-session.js';
+import {
+  RESPONSE_LOD_MAX,
+  RESPONSE_LOD_MIN,
+  authorityStrip,
+  clampResponseLod,
+  ensureChatThreadId,
+  groundedAnswerText,
+  isGroundedResponse,
+  isStalePayload,
+  parseAnswerDepthCommand,
+  resolveDefaultDepth,
+  responseLodLabel,
+  setCodeSessionDefaultDepth,
+  setThreadDefaultDepth,
+  staleActionsFromPayload
+} from './answer-depth.js';
 
 const DEFAULT_RUNTIME = 'https://cairnstone-v6.jaredtechfit.workers.dev/mcp';
 const DEFAULT_CHAIN = 'cairnstone-v6-project-memory';
 const MAX_SCOPE_CATALOG_CHAINS = 500;
 const MAX_SCOPE_QA_CHAINS = 25;
+const CODE_SESSION_STORE_KEY = 'cs.codeSessionId';
 const $ = id => document.getElementById(id);
 
 const state = {
   capabilities: [],
   lastResult: null,
+  lastStale: null,
+  pendingExpandLod: null,
+  chatThreadId: null,
   inbox: [],
   activity: [],
   stones: [],
@@ -32,9 +52,11 @@ const e = {
   universeButton: $('universeButton'), universeOverlay: $('universeOverlay'), universeClose: $('universeClose'), universeSearch: $('universeSearch'), universeLod: $('universeLod'),
   universeMulti: $('universeMulti'), universeApply: $('universeApply'), universeCanvas: $('universeCanvas'), universeFallbackList: $('universeFallbackList'),
   providerSelect: $('providerSelect'), modelSelect: $('modelSelect'), credentialAliasWrap: $('credentialAliasWrap'), credentialAlias: $('credentialAlias'),
-  singleChainRouteControls: $('singleChainRouteControls'), temperatureWrap: $('temperatureWrap'), includeInboxWrap: $('includeInboxWrap'), chatModeNote: $('chatModeNote'),
+  singleChainRouteControls: $('singleChainRouteControls'), temperatureWrap: $('temperatureWrap'), includeInboxWrap: $('includeInboxWrap'), toolDelegateWrap: $('toolDelegateWrap'), toolDelegate: $('toolDelegate'),
+  chatModeNote: $('chatModeNote'), answerDepthDefaults: $('answerDepthDefaults'),
   taskInput: $('taskInput'), outputTokens: $('outputTokens'), temperature: $('temperature'), includeInbox: $('includeInbox'), delegateButton: $('delegateButton'), refreshModels: $('refreshModels'),
   resultTitle: $('resultTitle'), resultMeta: $('resultMeta'), resultText: $('resultText'), copyResult: $('copyResult'),
+  authorityStrip: $('authorityStrip'), answerDepthControls: $('answerDepthControls'), staleActions: $('staleActions'),
   authoritySummary: $('authoritySummary'), pathHeads: $('pathHeads'), skillsList: $('skillsList'), memoryRefs: $('memoryRefs'), observability: $('observability'), copyEvidence: $('copyEvidence'),
   inboxActor: $('inboxActor'), refreshInbox: $('refreshInbox'), inboxList: $('inboxList'), messageTitle: $('messageTitle'), messageMeta: $('messageMeta'), messageContent: $('messageContent'),
   handoffChain: $('handoffChain'), handoffTo: $('handoffTo'), handoffSubject: $('handoffSubject'), handoffTask: $('handoffTask'), handoffPackage: $('handoffPackage'), handoffPriority: $('handoffPriority'),
@@ -72,12 +94,37 @@ function scopeKey(scope = state.scope) {
   return JSON.stringify(normalizeScope(scope));
 }
 
+function currentCodeSessionId() {
+  try { return String(sessionStorage.getItem(CODE_SESSION_STORE_KEY) || '').trim(); } catch { return ''; }
+}
+
+function presentationDefaultDepth() {
+  return resolveDefaultDepth({
+    threadId: state.chatThreadId || ensureChatThreadId(),
+    codeSessionId: currentCodeSessionId()
+  });
+}
+
+function renderAnswerDepthDefaults() {
+  if (!e.answerDepthDefaults) return;
+  const threadId = state.chatThreadId || ensureChatThreadId();
+  const codeSessionId = currentCodeSessionId();
+  const depth = presentationDefaultDepth();
+  const bits = [`Default Answer Depth: ${responseLodLabel(depth)} (presentation only)`];
+  if (codeSessionId) bits.push(`Code Session ${short(codeSessionId)}`);
+  else bits.push(`Thread ${short(threadId)}`);
+  bits.push('Never accepted project authority · distinct from stone_lod');
+  e.answerDepthDefaults.textContent = bits.join(' · ');
+}
+
 function loadSettings() {
   e.runtimeUrl.value = localStorage.getItem('cs.runtime') || DEFAULT_RUNTIME;
   e.actorId.value = localStorage.getItem('cs.actor') || 'console:jared';
   e.inboxActor.value = localStorage.getItem('cs.inboxActor') || e.actorId.value;
   e.activityActors.value = localStorage.getItem('cs.activityActors') || e.actorId.value;
   e.operatorToken.value = sessionStorage.getItem('cs.operatorToken') || '';
+  state.chatThreadId = ensureChatThreadId();
+  if (e.toolDelegate) e.toolDelegate.checked = localStorage.getItem('cs.chat.toolDelegate.v1') === '1';
 
   const priorChain = localStorage.getItem('cs.chain') || DEFAULT_CHAIN;
   try {
@@ -91,6 +138,7 @@ function loadSettings() {
   } catch {
     state.scopeRecents = [];
   }
+  renderAnswerDepthDefaults();
 }
 
 function saveSettings() {
@@ -100,6 +148,7 @@ function saveSettings() {
   localStorage.setItem('cs.activityActors', e.activityActors.value.trim());
   localStorage.setItem('cs.scope.v1', JSON.stringify(normalizeScope(state.scope)));
   if (state.scope.mode === 'single_chain' && state.scope.chains?.[0]) localStorage.setItem('cs.chain', state.scope.chains[0]);
+  if (e.toolDelegate) localStorage.setItem('cs.chat.toolDelegate.v1', e.toolDelegate.checked ? '1' : '0');
 }
 
 async function mcpCall(name, args = {}) {
@@ -324,27 +373,32 @@ function updateScopeDependents() {
 function renderChatMode() {
   const scopeResolved = Boolean(state.scopeSnapshot);
   const single = state.scope.mode === 'single_chain' && (!scopeResolved || (state.scopeSnapshot?.chains?.length || 0) === 1);
+  const toolDelegate = Boolean(single && e.toolDelegate?.checked);
 
   // Keep Chat configuration spatially stable while Scope resolves or changes.
-  // Multi-chain Q&A currently uses cairnstone_ask_scope, which does not expose
-  // provider-neutral route, temperature, or inbox controls. Show those controls
-  // disabled instead of removing them so the UI does not jump or imply they vanished.
+  // Progressive Answer Depth uses cairnstone_grounded_response* (no provider/temp/inbox).
+  // Optional single-chain tool delegation restores cairnstone_delegate controls.
   e.singleChainRouteControls.classList.remove('hidden');
   e.temperatureWrap.classList.remove('hidden');
   e.includeInboxWrap.classList.remove('hidden');
   e.refreshModels.classList.remove('hidden');
+  if (e.toolDelegateWrap) e.toolDelegateWrap.classList.toggle('hidden', !single);
 
   [e.providerSelect, e.modelSelect, e.credentialAlias, e.temperature, e.includeInbox, e.refreshModels].forEach(control => {
-    if (control) control.disabled = !single;
+    if (control) control.disabled = !toolDelegate;
   });
 
-  if (single) {
+  if (toolDelegate) {
     const chain = state.scopeSnapshot?.chains?.[0]?.chain || state.scope.chains?.[0] || DEFAULT_CHAIN;
-    e.chatModeNote.textContent = `Single-chain Scope · provider-neutral cairnstone_delegate grounded in ${chain}.`;
+    e.chatModeNote.textContent = `Single-chain tool delegation · cairnstone_delegate grounded in ${chain}. Answer Depth LOD controls are inactive on this path.`;
+  } else if (single) {
+    const chain = state.scopeSnapshot?.chains?.[0]?.chain || state.scope.chains?.[0] || DEFAULT_CHAIN;
+    e.chatModeNote.textContent = `Progressive Answer Depth · cairnstone_grounded_response on ${chain} (default response_lod 1; expand same response_id). Distinct from stone_lod. Optional tool delegation remains available above.`;
   } else {
     const n = state.scopeSnapshot?.chains?.length || 0;
-    e.chatModeNote.textContent = `Multi-chain Scope · citation-validated cairnstone_ask_scope across the exact ${n}-chain authority snapshot. Provider/model, temperature, and inbox controls stay visible but are inactive in this mode. No model tool execution and no persistent answer stone.`;
+    e.chatModeNote.textContent = `Progressive Answer Depth · cairnstone_grounded_response across the exact ${n}-chain Scope authority snapshot (replaces unconstrained ask_scope for Chat answers). Provider/model controls stay visible but inactive. No HEAD mutation · accepted_state_authority false.`;
   }
+  renderAnswerDepthDefaults();
 }
 
 async function loadCapabilities() {
@@ -392,15 +446,43 @@ async function askCurrentScope() {
   if (!task) return toast('Enter a question or task first');
   if (!state.scopeSnapshot) return toast('Resolve Scope first');
 
+  const command = parseAnswerDepthCommand(task);
+  if (command.type === 'set_thread_default') {
+    const tid = state.chatThreadId || ensureChatThreadId();
+    setThreadDefaultDepth(tid, command.response_lod);
+    renderAnswerDepthDefaults();
+    e.taskInput.value = '';
+    toast(`Thread default Answer Depth set to LOD ${command.response_lod} (presentation only)`);
+    return;
+  }
+  if (command.type === 'set_code_session_default') {
+    const sid = currentCodeSessionId();
+    if (!sid) return toast('Load a Code Session ID first (Code tab), then set its default Answer Depth');
+    setCodeSessionDefaultDepth(sid, command.response_lod);
+    renderAnswerDepthDefaults();
+    e.taskInput.value = '';
+    toast(`Code Session default Answer Depth set to LOD ${command.response_lod} (presentation only)`);
+    return;
+  }
+  if (command.type === 'expand') {
+    if (!isGroundedResponse(state.lastResult)) return toast('No grounded response to expand — ask first');
+    e.taskInput.value = '';
+    return expandGroundedResponse(command.response_lod, { viewOriginal: false }).catch(() => {});
+  }
+
+  const single = state.scope.mode === 'single_chain' && (state.scopeSnapshot.chains?.length || 0) === 1;
+  const useToolDelegate = Boolean(single && e.toolDelegate?.checked);
+
   busy(e.delegateButton, true, 'Asking…');
   e.resultTitle.textContent = 'Working…';
   e.resultText.textContent = 'Resolving accepted authority and grounded evidence.';
+  clearAnswerDepthUi();
   try {
     let r;
-    if (state.scope.mode === 'single_chain' && state.scopeSnapshot.chains?.length === 1) {
+    if (useToolDelegate) {
       r = await mcpCall('cairnstone_delegate', {
         actor_id: e.actorId.value.trim(),
-        task,
+        task: command.question || task,
         chain: state.scopeSnapshot.chains[0].chain,
         route: route(),
         generation: { max_output_tokens: Number(e.outputTokens.value || 800), temperature: Number(e.temperature.value || 0.2) },
@@ -408,29 +490,40 @@ async function askCurrentScope() {
       });
       e.handoffPackage.value = r.package_id || '';
       e.continuationHash.value = r.evidence?.chain_head?.hash || r.evidence?.chain_head?.stone_hash || '';
+      state.lastStale = null;
+      state.lastResult = r;
+      renderResult(r);
+      renderEvidence(r);
+      toast('Delegated answer complete');
     } else {
-      const chains = state.scopeSnapshot.chains || [];
-      if (chains.length > MAX_SCOPE_QA_CHAINS) throw new Error(`Current Scope resolves to ${chains.length} chains; cairnstone_ask_scope accepts at most ${MAX_SCOPE_QA_CHAINS}. Narrow Scope first.`);
-      const headless = chains.find(x => !x.head_hash);
-      if (headless) throw new Error(`Current Scope includes ${headless.chain}, which has no canonical HEAD. Narrow Scope before grounded synthesis.`);
-      r = await mcpCall('cairnstone_ask_scope', {
-        question: task,
-        scope: scopeArgs(),
-        max_tokens: Number(e.outputTokens.value || 800)
-      });
+      r = await createGroundedResponse(command.question || task, { responseLod: 1 });
       e.handoffPackage.value = '';
       e.continuationHash.value = '';
+      state.lastStale = null;
+      state.lastResult = r;
+      renderResult(r);
+      renderEvidence(r);
+      const preferred = presentationDefaultDepth();
+      if (preferred > 1) {
+        await expandGroundedResponse(preferred, { viewOriginal: false, quiet: true });
+      }
+      toast('Grounded answer complete');
     }
-    state.lastResult = r;
-    renderResult(r);
-    renderEvidence(r);
-    toast('Grounded answer complete');
   } catch (err) {
     const p = err.payload || {};
-    state.lastResult = p?.ok === false ? p : null;
-    e.resultTitle.textContent = p.error || 'Request failed';
-    e.resultMeta.innerHTML = '';
-    e.resultText.textContent = p.detail || p.hint || err.message;
+    state.lastResult = p?.ok === false && isGroundedResponse(p) ? p : (isGroundedResponse(state.lastResult) ? state.lastResult : null);
+    if (isStalePayload(p)) {
+      state.lastStale = p;
+      renderStaleActions(p);
+      e.resultTitle.textContent = 'Stale response';
+      e.resultText.textContent = p.detail || 'Accepted authority moved. View original snapshot or Refresh answer.';
+    } else {
+      state.lastStale = null;
+      e.resultTitle.textContent = p.error || 'Request failed';
+      e.resultMeta.innerHTML = '';
+      e.resultText.textContent = p.detail || p.hint || err.message;
+      clearAnswerDepthUi({ keepStale: false });
+    }
     renderEvidence(p);
     toast(err.message);
   } finally {
@@ -438,8 +531,210 @@ async function askCurrentScope() {
   }
 }
 
+async function createGroundedResponse(question, { responseLod = 1, refreshOf = null } = {}) {
+  const chains = state.scopeSnapshot?.chains || [];
+  if (chains.length > MAX_SCOPE_QA_CHAINS) throw new Error(`Current Scope resolves to ${chains.length} chains; grounded-response accepts at most ${MAX_SCOPE_QA_CHAINS}. Narrow Scope first.`);
+  const headless = chains.find(x => !x.head_hash);
+  if (headless) throw new Error(`Current Scope includes ${headless.chain}, which has no canonical HEAD. Narrow Scope before grounded synthesis.`);
+
+  const args = {
+    question,
+    scope: scopeArgs(),
+    response_lod: clampResponseLod(responseLod, 1),
+    actor_id: e.actorId.value.trim(),
+    thread_id: state.chatThreadId || ensureChatThreadId(),
+    max_tokens: Number(e.outputTokens.value || 800)
+  };
+  const codeSessionId = currentCodeSessionId();
+  if (codeSessionId) args.code_session_id = codeSessionId;
+  if (refreshOf) args.refresh_of = refreshOf;
+  return mcpCall('cairnstone_grounded_response', args);
+}
+
+async function expandGroundedResponse(targetLod, { viewOriginal = false, quiet = false } = {}) {
+  const lod = clampResponseLod(targetLod, 1);
+  const current = state.lastResult;
+  if (!isGroundedResponse(current)) return toast('No grounded response to expand');
+
+  state.pendingExpandLod = lod;
+  renderAnswerDepthControls(current);
+  if (!quiet) {
+    busy(e.delegateButton, true, `LOD ${lod}…`);
+  }
+  try {
+    let r;
+    if (lod === clampResponseLod(current.response_lod ?? current.rendered?.response_lod, 1) && !viewOriginal) {
+      r = await mcpCall('cairnstone_grounded_response_get', {
+        response_id: current.response_id,
+        include_skeleton: true,
+        include_evidence: true
+      });
+    } else {
+      r = await mcpCall('cairnstone_grounded_response_expand', {
+        response_id: current.response_id,
+        response_lod: lod,
+        view_original: Boolean(viewOriginal),
+        include_skeleton: true,
+        include_evidence: true
+      });
+    }
+    state.lastResult = r;
+    state.lastStale = null;
+    renderResult(r);
+    renderEvidence(r);
+    if (!quiet) toast(viewOriginal ? `Viewing original snapshot at LOD ${lod}` : `Answer Depth LOD ${lod}`);
+  } catch (err) {
+    const p = err.payload || {};
+    if (isStalePayload(p)) {
+      state.lastStale = p;
+      renderStaleActions(p, lod);
+      if (!quiet) toast('Authority changed — choose View original or Refresh');
+    } else if (!quiet) {
+      toast(err.message);
+    }
+  } finally {
+    state.pendingExpandLod = null;
+    renderAnswerDepthControls(state.lastResult);
+    if (!quiet) busy(e.delegateButton, false, 'Ask current Scope');
+  }
+}
+
+async function refreshGroundedAnswer() {
+  const prior = state.lastResult;
+  const stale = state.lastStale;
+  const question = stale?.actions?.refresh?.params?.question || prior?.question;
+  if (!question) return toast('Nothing to refresh');
+  const refreshOf = stale?.actions?.refresh?.params?.refresh_of || prior?.response_id;
+  busy(e.delegateButton, true, 'Refreshing…');
+  e.resultTitle.textContent = 'Refreshing…';
+  e.resultText.textContent = 'Creating a new grounded response against current accepted authority (new response_id).';
+  try {
+    const r = await createGroundedResponse(question, { responseLod: 1, refreshOf });
+    state.lastResult = r;
+    state.lastStale = null;
+    renderResult(r);
+    renderEvidence(r);
+    toast('Refreshed answer (new response_id)');
+  } catch (err) {
+    e.resultTitle.textContent = err.payload?.error || 'Refresh failed';
+    e.resultText.textContent = err.payload?.detail || err.message;
+    toast(err.message);
+  } finally {
+    busy(e.delegateButton, false, 'Ask current Scope');
+  }
+}
+
+function clearAnswerDepthUi({ keepStale = false } = {}) {
+  if (e.authorityStrip) {
+    e.authorityStrip.classList.add('hidden');
+    e.authorityStrip.innerHTML = '';
+  }
+  if (e.answerDepthControls) {
+    e.answerDepthControls.classList.add('hidden');
+    e.answerDepthControls.innerHTML = '';
+  }
+  if (!keepStale && e.staleActions) {
+    e.staleActions.classList.add('hidden');
+    e.staleActions.innerHTML = '';
+  }
+}
+
+function renderAuthorityStrip(r) {
+  if (!e.authorityStrip) return;
+  if (!isGroundedResponse(r)) {
+    e.authorityStrip.classList.add('hidden');
+    e.authorityStrip.innerHTML = '';
+    return;
+  }
+  const strip = authorityStrip(r);
+  e.authorityStrip.classList.remove('hidden');
+  e.authorityStrip.innerHTML = [
+    `<span class="authority-pill ${esc(strip.tone)}">${esc(strip.label)}</span>`,
+    `<span class="evidence-pill">Evidence: ${esc(String(strip.evidenceCount))} refs</span>`,
+    `<span class="evidence-pill">response_id ${esc(short(strip.responseId))}</span>`,
+    strip.acceptedStateAuthority ? '<span class="evidence-pill">accepted_state_authority true</span>' : '<span class="evidence-pill">accepted_state_authority false</span>'
+  ].join('');
+}
+
+function renderAnswerDepthControls(r) {
+  if (!e.answerDepthControls) return;
+  if (!isGroundedResponse(r)) {
+    e.answerDepthControls.classList.add('hidden');
+    e.answerDepthControls.innerHTML = '';
+    return;
+  }
+  const current = clampResponseLod(r.response_lod ?? r.rendered?.response_lod, 1);
+  const pending = state.pendingExpandLod;
+  const buttons = [];
+  for (let lod = RESPONSE_LOD_MIN; lod <= RESPONSE_LOD_MAX; lod += 1) {
+    const active = lod === current ? 'active' : '';
+    const disabled = pending != null ? 'disabled' : '';
+    const label = lod === 1 ? 'LOD 1' : String(lod);
+    buttons.push(`<button type="button" class="lod-btn ${active}" data-response-lod="${lod}" ${disabled} title="${esc(responseLodLabel(lod))}">${esc(label)}</button>`);
+  }
+  e.answerDepthControls.classList.remove('hidden');
+  e.answerDepthControls.innerHTML = `<span class="answer-depth-label">${esc(responseLodLabel(current))}</span>${buttons.join('')}`;
+  e.answerDepthControls.querySelectorAll('[data-response-lod]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const lod = Number(btn.dataset.responseLod);
+      const fresh = r.authority_freshness || {};
+      const stale = fresh.stale === true;
+      expandGroundedResponse(lod, { viewOriginal: stale && fresh.viewed_original_snapshot === true }).catch(() => {});
+    });
+  });
+}
+
+function renderStaleActions(payload, requestedLod = null) {
+  if (!e.staleActions) return;
+  const actions = staleActionsFromPayload(payload);
+  const lod = clampResponseLod(requestedLod || payload?.actions?.view_original?.params?.response_lod || state.pendingExpandLod || 2, 2);
+  e.staleActions.classList.remove('hidden');
+  e.staleActions.innerHTML = `
+    <p><strong>Stale response</strong> — accepted authority moved (${esc(payload?.reason || payload?.authority_freshness?.status || 'authority_changed')}). Expanding deeper LODs will not silently mix snapshots.</p>
+    <div class="stale-buttons">
+      ${actions.view_original ? `<button type="button" class="secondary" data-stale-action="view_original">View original snapshot</button>` : ''}
+      ${actions.refresh ? `<button type="button" class="secondary" data-stale-action="refresh">Refresh answer</button>` : ''}
+    </div>`;
+  e.staleActions.querySelectorAll('[data-stale-action]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (btn.dataset.staleAction === 'view_original') {
+        expandGroundedResponse(lod, { viewOriginal: true }).catch(() => {});
+      } else if (btn.dataset.staleAction === 'refresh') {
+        refreshGroundedAnswer().catch(() => {});
+      }
+    });
+  });
+}
+
 function renderResult(r) {
-  if (r?.schema === 'cairnstone-scope-answer-v1') {
+  if (isGroundedResponse(r)) {
+    const lod = clampResponseLod(r.response_lod ?? r.rendered?.response_lod, 1);
+    e.resultTitle.textContent = `Answer Depth · ${responseLodLabel(lod)}`;
+    e.resultText.classList.remove('muted');
+    e.resultText.textContent = groundedAnswerText(r) || '(No answer returned)';
+    e.resultMeta.innerHTML = [
+      ['response', short(r.response_id)],
+      ['scope', short(r.scope_id || r.scope_snapshot?.scope_id)],
+      ['authority', short(r.authority_digest)],
+      ['response_lod', String(lod)],
+      ['materialized', (r.materialized_response_lods || []).join(',') || String(lod)]
+    ].map(([k, v]) => chip(`${k}: ${v}`)).join('');
+    renderAuthorityStrip(r);
+    renderAnswerDepthControls(r);
+    if (authorityStrip(r).stale && !authorityStrip(r).viewedOriginal) {
+      renderStaleActions({
+        error: 'stale_response',
+        reason: r.authority_freshness?.status || 'authority_changed',
+        actions: r.authority_freshness?.actions || ['view_original', 'refresh'],
+        response_id: r.response_id,
+        question: r.question
+      }, lod);
+    } else if (e.staleActions) {
+      e.staleActions.classList.add('hidden');
+      e.staleActions.innerHTML = '';
+    }
+  } else if (r?.schema === 'cairnstone-scope-answer-v1') {
+    clearAnswerDepthUi();
     e.resultTitle.textContent = `Scope Q&A · ${r.model || 'Workers AI'}`;
     e.resultText.textContent = r.answer || '(No answer returned)';
     e.resultMeta.innerHTML = [
@@ -450,6 +745,7 @@ function renderResult(r) {
       ['coverage', r.coverage?.complete === true ? 'complete' : 'bounded']
     ].map(([k, v]) => chip(`${k}: ${v}`)).join('');
   } else {
+    clearAnswerDepthUi();
     e.resultTitle.textContent = `${r.route?.provider || 'model'} · ${r.route?.model || 'unknown'}`;
     e.resultText.textContent = r.output?.text || '(No text returned)';
     e.resultMeta.innerHTML = [
@@ -465,7 +761,36 @@ function renderResult(r) {
 
 function renderEvidence(r) {
   const snap = r?.scope_snapshot || state.scopeSnapshot;
-  if (r?.schema === 'cairnstone-scope-answer-v1') {
+  if (isGroundedResponse(r)) {
+    const fresh = r.authority_freshness || {};
+    e.authoritySummary.innerHTML = [
+      ['Schema', r.schema || '—'],
+      ['response_id', r.response_id || '—'],
+      ['response_lod', String(r.response_lod ?? r.rendered?.response_lod ?? '—')],
+      ['Scope ID', r.scope_id || snap?.scope_id || '—'],
+      ['Authority digest', r.authority_digest || snap?.authority_digest || '—'],
+      ['Authority freshness', fresh.status || (fresh.stale ? 'stale' : 'current')],
+      ['Evidence refs', String(Array.isArray(r.evidence) ? r.evidence.length : (r.telemetry?.evidence_count ?? 0))],
+      ['accepted_state_authority', String(r.accepted_state_authority ?? false)],
+      ['Chain HEAD writes', String(r.chain_heads_mutated ?? false)],
+      ['Path HEAD writes', String(r.path_heads_mutated ?? false)],
+      ['Naming', 'response_lod 1→5 answer depth · stone_lod unchanged']
+    ].map(evidenceCell).join('');
+    list(e.pathHeads, r.evidence, x => `<strong>${esc(x.chain || 'chain')} · ${esc(x.authority_class || '')}</strong><br>${esc(x.path || '(evidence)')} · ${esc(short(x.stone_hash))}${x.commit_sha ? ` · ${esc(x.commit_sha.slice(0, 12))}` : ''}`);
+    list(e.skillsList, [], () => '');
+    list(e.memoryRefs, r.answer_skeleton?.claims || r.skeleton?.claims || [], x => `<strong>${esc(x.text || 'claim')}</strong><br>${esc(short(x.stone_hash))}${x.ref_id ? ` · ${esc(x.ref_id)}` : ''}`);
+    e.observability.textContent = JSON.stringify({
+      response_id: r.response_id,
+      naming: r.naming,
+      authority_freshness: r.authority_freshness,
+      telemetry: r.telemetry,
+      materialized_response_lods: r.materialized_response_lods,
+      provider_envelope: r.provider_envelope,
+      accepted_state_authority: r.accepted_state_authority,
+      chain_heads_mutated: r.chain_heads_mutated,
+      path_heads_mutated: r.path_heads_mutated
+    }, null, 2);
+  } else if (r?.schema === 'cairnstone-scope-answer-v1') {
     e.authoritySummary.innerHTML = [
       ['Scope ID', snap?.scope_id || '—'],
       ['Authority digest', snap?.authority_digest || '—'],
@@ -969,8 +1294,9 @@ e.refreshModels.addEventListener('click', loadCapabilities);
 e.delegateButton.addEventListener('click', askCurrentScope);
 e.refreshInbox.addEventListener('click', refreshInbox);
 e.handoffButton.addEventListener('click', handoff);
-e.copyResult.addEventListener('click', () => copy(state.lastResult?.answer || state.lastResult?.output?.text || ''));
+e.copyResult.addEventListener('click', () => copy(groundedAnswerText(state.lastResult) || state.lastResult?.answer || state.lastResult?.output?.text || ''));
 e.copyEvidence.addEventListener('click', () => copy(JSON.stringify({ scope_snapshot: state.scopeSnapshot, result: state.lastResult }, null, 2)));
+if (e.toolDelegate) e.toolDelegate.addEventListener('change', () => { saveSettings(); renderChatMode(); });
 e.activityRefresh.addEventListener('click', refreshActivity);
 e.activityFilter.addEventListener('change', renderActivity);
 e.activityGroupThreads.addEventListener('change', renderActivity);

@@ -64,22 +64,27 @@
             <button id="refreshModels" class="secondary" type="button">Models</button>
           </div>
           <p id="chatModeNote" class="muted small"></p>
+          <div id="answerDepthDefaults" class="answer-depth-defaults muted small"></div>
           <div id="singleChainRouteControls">
             <div class="two-col"><label><span>Provider</span><select id="providerSelect"></select></label><label><span>Model</span><select id="modelSelect"></select></label></div>
             <label id="credentialAliasWrap" class="hidden"><span>Credential alias</span><input id="credentialAlias" value="default" autocomplete="off"></label>
           </div>
-          <label><span>Question / task</span><textarea id="taskInput" rows="7" maxlength="4000" placeholder="Ask a bounded question grounded in the current Scope."></textarea></label>
+          <label><span>Question / task</span><textarea id="taskInput" rows="7" maxlength="4000" placeholder="Ask a bounded question, or say “LOD 3 that.” / “Keep this conversation at LOD 1 unless I expand.”"></textarea></label>
           <div class="two-col compact">
             <label><span>Output tokens</span><input id="outputTokens" type="number" min="128" max="2000" value="800"></label>
-            <label id="temperatureWrap"><span>Temperature <small>(single-chain delegation)</small></span><input id="temperature" type="number" min="0" max="2" step="0.1" value="0.2"></label>
+            <label id="temperatureWrap"><span>Temperature <small>(tool delegation only)</small></span><input id="temperature" type="number" min="0" max="2" step="0.1" value="0.2"></label>
           </div>
-          <label id="includeInboxWrap" class="check-row"><input id="includeInbox" type="checkbox" checked><span>Include non-mutating AC1 inbox snapshot in single-chain delegation context</span></label>
+          <label id="includeInboxWrap" class="check-row"><input id="includeInbox" type="checkbox" checked><span>Include non-mutating AC1 inbox snapshot in single-chain tool delegation</span></label>
+          <label id="toolDelegateWrap" class="check-row"><input id="toolDelegate" type="checkbox"><span>Use single-chain tool delegation (<code>cairnstone_delegate</code>) instead of progressive Answer Depth</span></label>
           <button id="delegateButton" class="primary" type="button">Ask current Scope</button>
         </div>
         <div class="card result-card">
           <div class="section-heading"><div><div class="eyebrow">Grounded result</div><h2 id="resultTitle">No result yet</h2></div><button id="copyResult" class="secondary" type="button" disabled>Copy</button></div>
           <div id="resultMeta" class="chips"></div>
+          <div id="authorityStrip" class="authority-strip hidden" aria-live="polite"></div>
           <div id="resultText" class="prose muted">Ask the current Scope to see a grounded response here.</div>
+          <div id="answerDepthControls" class="answer-depth-controls hidden" aria-label="Answer Depth"></div>
+          <div id="staleActions" class="stale-actions hidden" aria-live="polite"></div>
         </div>
       </section>
       <section id="panel-evidence" class="panel">
