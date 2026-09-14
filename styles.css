@@ -16,6 +16,7 @@ button,input,select,textarea{font:inherit}button{cursor:pointer}
 .context-pills{display:flex;flex-wrap:wrap;gap:8px;align-items:center;flex:1;min-width:0}
 .context-pill{display:inline-flex;flex-direction:column;align-items:flex-start;gap:2px;min-height:var(--touch);min-width:0;max-width:100%;border:1px solid var(--line);border-radius:12px;background:var(--surface);color:var(--text);padding:7px 10px;text-align:left}
 .context-pill-quiet{flex-direction:row;align-items:center;gap:8px;font-size:.75rem;font-weight:750}
+.context-runtime-v{display:inline-flex;align-items:center;gap:8px;white-space:nowrap}
 .context-k{font-size:.65rem;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
 .context-v{font-size:.78rem;font-weight:700;max-width:42vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
