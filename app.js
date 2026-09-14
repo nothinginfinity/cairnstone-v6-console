@@ -1,4 +1,5 @@
 import { initInvitePanel } from './invite.js';
+import { initCodeSessionPanel } from './code-session.js';
 
 const DEFAULT_RUNTIME = 'https://cairnstone-v6.jaredtechfit.workers.dev/mcp';
 const DEFAULT_CHAIN = 'cairnstone-v6-project-memory';
@@ -993,7 +994,7 @@ document.addEventListener('keydown', event => { if (event.key === 'Escape' && !e
 
 loadSettings();
 
-initInvitePanel({
+const inviteApi = initInvitePanel({
   mcpCall,
   operatorCall,
   toast,
@@ -1001,6 +1002,17 @@ initInvitePanel({
   esc,
   chip,
   actorId: () => (e.actorId?.value || 'console:jared').trim()
+});
+
+initCodeSessionPanel({
+  mcpCall,
+  toast,
+  busy,
+  esc,
+  chip,
+  actorId: () => (e.actorId?.value || 'console:jared').trim(),
+  panel,
+  invitePrefill: (opts) => inviteApi?.prefillForCodeSession?.(opts)
 });
 await health().catch(() => {});
 await loadVaultCatalog().catch(err => {

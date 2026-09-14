@@ -2,6 +2,17 @@
 
 A thin, provider-neutral browser client for the live CairnStone V7 runtime.
 
+## V7.7.7f Persistent Code Mode
+
+The **Code** tab is an operator surface for one durable Code Session (not a single model chat):
+
+- loads `cairnstone_code_session_console_view` with `code_session_id`, `actor_id`, and a workspace capability entered into a password field (kept only in `sessionStorage`, never stoned);
+- shows project, lifecycle, current task, actors, tests, and working-tree summary from the worker aggregation;
+- **Invite Agent** switches to the existing **Invite** tab and prefills workspace + continuation prompt — minting still uses the V7.7.6 trusted-human invite flow (`POST /v1/workspace-invites` / Mint & Send); no second ticket format;
+- **Send Message** uses ordinary AC1 `cairnstone_send_message` with the continuation prompt;
+- **Checkpoints** / **View Work** call existing list/tree APIs;
+- **Propose / Merge** confirms, then calls only `cairnstone_workspace_propose_accept` (Console grants no new merge/deploy authority).
+
 ## V7.7.3 scope workspace
 
 V7.7.3 turns the previous single-Chain Console into a shared multi-repository / multi-chain workspace while preserving CairnStone authority boundaries.

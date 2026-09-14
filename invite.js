@@ -446,4 +446,21 @@ export function initInvitePanel(api) {
   setInterval(tickCountdowns, 1000);
   render();
   tickCountdowns();
+
+  return {
+    /**
+     * Prefill Invite tab for Code Session "Invite Agent" (V7.7.6 mint reuse).
+     * Does not invent a second ticket format — operator still uses Mint & Send.
+     */
+    prefillForCodeSession({ workspaceId, instruction, fallback } = {}) {
+      if (workspaceId && els.workspace) els.workspace.value = workspaceId;
+      if (instruction && els.instruction) els.instruction.value = instruction;
+      if (fallback && els.fallback) {
+        els.fallback.removeAttribute('readonly');
+        els.fallback.value = fallback;
+        els.fallback.setAttribute('readonly', '');
+      }
+      els.workspace?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  };
 }

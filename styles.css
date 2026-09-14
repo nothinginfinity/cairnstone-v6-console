@@ -7,6 +7,17 @@
 
 @media(min-width:680px){.scope-tools{grid-template-columns:minmax(260px,1fr) auto;align-items:end}.scope-actions{display:flex}.universe-controls{grid-template-columns:minmax(260px,1fr) auto auto auto}.universe-controls input{grid-column:auto}}@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}.universe-node,.toast{transition:none}}@media(min-width:680px){.app-shell{padding-inline:24px}.two-col{grid-template-columns:1fr 1fr}.evidence-grid{grid-template-columns:repeat(2,1fr)}.card{padding:20px}.tab{font-size:.86rem}}
 
-.tabs{grid-template-columns:repeat(4,1fr)}
+.tabs{grid-template-columns:repeat(3,1fr)}
+@media(min-width:680px){.tabs{grid-template-columns:repeat(5,1fr)}}
 .invite-card .invite-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
 .invite-actions .secondary{width:auto}
+.code-session-card .code-surface{margin-top:4px;padding-top:4px}
+.code-block-label{color:var(--accent);text-transform:uppercase;font-size:.72rem;font-weight:800;letter-spacing:.12em;margin:14px 0 4px}
+.code-block-value{font-size:1.02rem;font-weight:700;overflow-wrap:anywhere;line-height:1.35}
+.code-actors{display:grid;gap:4px;margin-bottom:4px}
+.code-actor-line{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.82rem;overflow-wrap:anywhere;white-space:pre-wrap;color:var(--text)}
+.code-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
+.code-actions .primary.compact-button,.code-actions .secondary{width:auto;flex:1 1 calc(50% - 8px);min-width:140px}
+.code-propose-form{margin-top:16px;padding-top:12px;border-top:1px solid var(--line)}
+.code-propose-form code{font-size:.78rem;color:var(--accent2)}
+@media(min-width:680px){.code-actions .primary.compact-button,.code-actions .secondary{flex:1 1 auto;min-width:0}}
