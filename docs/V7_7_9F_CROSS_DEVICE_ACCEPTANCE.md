@@ -122,12 +122,17 @@ Evidence: screenshots/video under walkthrough artifacts + notes below.
 
 | Surface | Mobile | Desktop | Evidence |
 |---|---|---|---|
-| Chat | exercised | exercised | screenshots / video |
-| Work | exercised | exercised | screenshots / video |
-| Universe | exercised | exercised | screenshots / video |
-| Inbox | exercised | exercised | screenshots / video |
-| More (Authorize visible) | exercised | exercised | screenshots / video |
-| Reduced-motion note | CSS + helper verified | same | doc + unit test |
+| Chat | **PASS** | **PASS** | `docs/acceptance-artifacts/v779f-mobile-chat.webp`, `v779f-desktop-chat.webp` |
+| Work | **PASS** | **PASS** (nav) | `v779f-mobile-work.webp` |
+| Universe | **PASS** | **PASS** (nav) | `v779f-mobile-universe-landing.webp`, `v779f-mobile-universe-overlay.webp` |
+| Inbox | **PASS** | **PASS** (nav) | `v779f-mobile-inbox.webp` |
+| More (Authorize) | **PASS** | **PASS** | `v779f-mobile-authorize.webp`, `v779f-desktop-authorize.webp` |
+| Pages baseline (9e) | — | **PASS** | `v779f-pages-baseline-9e.webp` |
+| Reduced-motion | CSS + helper | same | unit test + `prefers-reduced-motion` / `.cs-reduced-motion` in `styles.css` |
+| End-to-end video | **PASS** | **PASS** | `docs/acceptance-artifacts/v779f-cross-device-acceptance-demo.mp4` |
+
+Live worker during acceptance: **0.5.38** (Runtime pill + `cairnstone_health`).  
+`cairnstone_resolve_scope` on `cairnstone-v6-project-memory` returned head_hash `a3544a7b…` (unchanged by reads).
 
 ## Blocker patches shipped in 9f
 
