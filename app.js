@@ -41,7 +41,6 @@ import {
   lodLoadPlan,
   normalizeViewMode,
   normalizeZoom,
-  panZoomStyle,
   preserveSelection,
   scopeSelectorFromEntity,
   searchToFocus,
