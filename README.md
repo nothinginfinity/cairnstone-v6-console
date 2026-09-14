@@ -2,6 +2,10 @@
 
 A thin, provider-neutral browser client for the live CairnStone V7 runtime.
 
+## V7.7.9a Responsive shell
+
+Primary navigation is **Chat · Work · Universe · Inbox · More** (mobile bottom nav + desktop rail), with a compact context bar for Scope / actor / session / runtime. Dense 9-peer-tab chrome is gone; capabilities remain reachable via primary destinations and Inbox/More subnav. Presentation only — no new accepted-state authority. See `docs/V7_7_9A_RESPONSIVE_SHELL.md`.
+
 ## V7.7.8c Answer Depth
 
 Chat answers default to progressive **Answer Depth** (`response_lod` 1→5) via `cairnstone_grounded_response*`:
@@ -15,11 +19,11 @@ Chat answers default to progressive **Answer Depth** (`response_lod` 1→5) via 
 
 ## V7.7.7f Persistent Code Mode
 
-The **Code** tab is an operator surface for one durable Code Session (not a single model chat):
+The **Work** primary (Code Session panel) is an operator surface for one durable Code Session (not a single model chat):
 
 - loads `cairnstone_code_session_console_view` with `code_session_id`, `actor_id`, and a workspace capability entered into a password field (kept only in `sessionStorage`, never stoned);
 - shows project, lifecycle, current task, actors, tests, and working-tree summary from the worker aggregation;
-- **Invite Agent** switches to the existing **Invite** tab and prefills workspace + continuation prompt — minting still uses the V7.7.6 trusted-human invite flow (`POST /v1/workspace-invites` / Mint & Send); no second ticket format;
+- **Invite Agent** switches to **More → Invite** and prefills workspace + continuation prompt — minting still uses the V7.7.6 trusted-human invite flow (`POST /v1/workspace-invites` / Mint & Send); no second ticket format;
 - **Send Message** uses ordinary AC1 `cairnstone_send_message` with the continuation prompt;
 - **Checkpoints** / **View Work** call existing list/tree APIs;
 - **Propose / Merge** confirms, then calls only `cairnstone_workspace_propose_accept` (Console grants no new merge/deploy authority).
@@ -28,7 +32,7 @@ The **Code** tab is an operator surface for one durable Code Session (not a sing
 
 V7.7.3 turns the previous single-Chain Console into a shared multi-repository / multi-chain workspace while preserving CairnStone authority boundaries.
 
-- one global **Scope** control resolves the existing `cairnstone-scope-v1` selectors (`single_chain`, `repo`, `multi`, `vault`);
+- one global **Scope** control (context bar → sheet) resolves the existing `cairnstone-scope-v1` selectors (`single_chain`, `repo`, `multi`, `vault`);
 - the catalog comes from `cairnstone_vault_catalog`; the resolved authority snapshot comes from `cairnstone_resolve_scope`;
 - list selection supports searchable repository grouping, child chains, explicit multi-select, recents, and `All CairnStone`;
 - Chat uses progressive Answer Depth (`cairnstone_grounded_response`) by default; optional single-chain tool delegation keeps `cairnstone_delegate`;
@@ -48,7 +52,7 @@ The console remains dependency-free and requires no WebGL. The Universe projecti
 The V7.3.3 authorization surface remains intact:
 
 - delegated models receive zero execution/mutation authority;
-- pending mutation requests are reviewed in **Authorize**;
+- pending mutation requests are reviewed in **Authorize** (under More);
 - approval/denial uses REST-only operator endpoints deliberately absent from the MCP tool catalog;
 - the operator bearer is entered by the human and kept only in browser `sessionStorage`;
 - approval binds to the immutable request Stone, exact argument digest, and concurrency guard;
@@ -66,10 +70,10 @@ python3 -m http.server 8080
 
 Then open `http://localhost:8080`.
 
-Unit tests for Answer Depth helpers:
+Unit tests:
 
 ```bash
-node --test answer-depth.test.js
+node --test answer-depth.test.js shell-nav.test.js
 ```
 
 ## Operator setup

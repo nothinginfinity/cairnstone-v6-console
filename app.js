@@ -45,10 +45,40 @@ const state = {
   universeMultiSelection: new Set()
 };
 
+const PRIMARY_BY_PANEL = {
+  chat: 'chat',
+  code: 'work',
+  universe: 'universe',
+  inbox: 'inbox',
+  handoff: 'inbox',
+  activity: 'inbox',
+  stones: 'more',
+  evidence: 'more',
+  authorize: 'more',
+  invite: 'more',
+  settings: 'more'
+};
+
+const DEFAULT_PANEL_BY_PRIMARY = {
+  chat: 'chat',
+  work: 'code',
+  universe: 'universe',
+  inbox: 'inbox',
+  more: 'stones'
+};
+
 const e = {
   runtimeUrl: $('runtimeUrl'), actorId: $('actorId'), healthButton: $('healthButton'), healthDot: $('healthDot'), healthText: $('healthText'),
+  contextScopeBtn: $('contextScopeBtn'), contextActorBtn: $('contextActorBtn'), contextSessionBtn: $('contextSessionBtn'), contextRuntimeBtn: $('contextRuntimeBtn'),
+  contextScopeLabel: $('contextScopeLabel'), contextActorLabel: $('contextActorLabel'), contextSessionLabel: $('contextSessionLabel'),
+  inboxSubnav: $('inboxSubnav'), moreSubnav: $('moreSubnav'),
+  scopeSheet: $('scopeSheet'), runtimeSheet: $('runtimeSheet'),
+  settingsOpenSheet: $('settingsOpenSheet'), settingsActorPreview: $('settingsActorPreview'), settingsRuntimePreview: $('settingsRuntimePreview'),
+  runtimeSheetRecheck: $('runtimeSheetRecheck'),
   scopeSummary: $('scopeSummary'), scopeAuthority: $('scopeAuthority'), scopeCoverage: $('scopeCoverage'), scopeSearch: $('scopeSearch'), scopeAll: $('scopeAll'), scopeDefault: $('scopeDefault'),
   scopeRecentsWrap: $('scopeRecentsWrap'), scopeRecents: $('scopeRecents'), scopeCatalog: $('scopeCatalog'), scopePicker: $('scopePicker'),
+  universeLandingSummary: $('universeLandingSummary'), universeLandingAuthority: $('universeLandingAuthority'),
+  universeOpenScope: $('universeOpenScope'), universeOpenRuntime: $('universeOpenRuntime'),
   universeButton: $('universeButton'), universeOverlay: $('universeOverlay'), universeClose: $('universeClose'), universeSearch: $('universeSearch'), universeLod: $('universeLod'),
   universeMulti: $('universeMulti'), universeApply: $('universeApply'), universeCanvas: $('universeCanvas'), universeFallbackList: $('universeFallbackList'),
   providerSelect: $('providerSelect'), modelSelect: $('modelSelect'), credentialAliasWrap: $('credentialAliasWrap'), credentialAlias: $('credentialAlias'),
@@ -332,6 +362,7 @@ async function toggleChainInScope(chain) {
 async function resolveCurrentScope({ recordRecent = false, recentLabel } = {}) {
   e.scopeSummary.textContent = 'Resolving Scope…';
   e.scopeAuthority.textContent = 'Reading exact participating chain HEAD snapshot.';
+  syncContextBar({ scopePending: true });
   try {
     const snap = await mcpCall('cairnstone_resolve_scope', scopeArgs());
     state.scopeSnapshot = snap;
@@ -349,6 +380,7 @@ async function resolveCurrentScope({ recordRecent = false, recentLabel } = {}) {
     updateScopeDependents();
     renderScopeCatalog();
     renderEvidence(state.lastResult);
+    syncContextBar();
     return snap;
   } catch (err) {
     state.scopeSnapshot = null;
@@ -356,6 +388,7 @@ async function resolveCurrentScope({ recordRecent = false, recentLabel } = {}) {
     e.scopeAuthority.textContent = err.message;
     e.scopeCoverage.textContent = '';
     updateScopeDependents();
+    syncContextBar();
     toast(err.message);
     throw err;
   }
@@ -1281,15 +1314,87 @@ function toast(message) {
   e.toast.classList.add('show');
   toastTimer = setTimeout(() => e.toast.classList.remove('show'), 2400);
 }
-async function copy(value) { await navigator.clipboard.writeText(value); toast('Copied'); }
 function panel(name) {
-  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.panel === name));
-  document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === `panel-${name}`));
+  const panelName = name === 'work' ? 'code' : name;
+  const primary = PRIMARY_BY_PANEL[panelName] || 'chat';
+  document.querySelectorAll('.nav-item').forEach(t => t.classList.toggle('active', t.dataset.nav === primary));
+  document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === `panel-${panelName}`));
+  if (e.inboxSubnav) e.inboxSubnav.classList.toggle('hidden', primary !== 'inbox');
+  if (e.moreSubnav) e.moreSubnav.classList.toggle('hidden', primary !== 'more');
+  document.querySelectorAll('#inboxSubnav .subnav-item, #moreSubnav .subnav-item').forEach(t => {
+    t.classList.toggle('active', t.dataset.panel === panelName);
+  });
+  if (primary === 'more') syncSettingsPreview();
+  if (panelName === 'universe') syncUniverseLanding();
 }
 
-document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => panel(t.dataset.panel)));
+function navigatePrimary(nav) {
+  const primary = String(nav || 'chat');
+  if (primary === 'universe') {
+    panel('universe');
+    return;
+  }
+  panel(DEFAULT_PANEL_BY_PRIMARY[primary] || 'chat');
+}
+
+function openSheet(id) {
+  const el = $(id);
+  if (!el) return;
+  el.classList.remove('hidden');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeSheet(id) {
+  const el = typeof id === 'string' ? $(id) : id;
+  if (!el) return;
+  el.classList.add('hidden');
+  if (![e.scopeSheet, e.runtimeSheet].some(s => s && !s.classList.contains('hidden'))) {
+    document.body.style.overflow = '';
+  }
+}
+
+function syncContextBar({ scopePending = false } = {}) {
+  if (e.contextScopeLabel) {
+    if (scopePending) e.contextScopeLabel.textContent = 'Resolving…';
+    else if (e.scopeSummary?.textContent) e.contextScopeLabel.textContent = e.scopeSummary.textContent;
+    else e.contextScopeLabel.textContent = scopeLabel();
+  }
+  if (e.contextActorLabel && e.actorId) e.contextActorLabel.textContent = e.actorId.value.trim() || '—';
+  if (e.contextSessionLabel) {
+    const sid = currentCodeSessionId();
+    e.contextSessionLabel.textContent = sid ? short(sid) : '—';
+  }
+  syncUniverseLanding();
+  syncSettingsPreview();
+}
+
+function syncUniverseLanding() {
+  if (e.universeLandingSummary && e.scopeSummary) e.universeLandingSummary.textContent = e.scopeSummary.textContent;
+  if (e.universeLandingAuthority && e.scopeAuthority) e.universeLandingAuthority.textContent = e.scopeAuthority.textContent;
+}
+
+function syncSettingsPreview() {
+  if (e.settingsActorPreview && e.actorId) e.settingsActorPreview.textContent = e.actorId.value.trim() || '—';
+  if (e.settingsRuntimePreview && e.runtimeUrl) e.settingsRuntimePreview.textContent = e.runtimeUrl.value.trim() || '—';
+}
+
+async function copy(value) { await navigator.clipboard.writeText(value); toast('Copied'); }
+
+document.querySelectorAll('.nav-item[data-nav]').forEach(t => t.addEventListener('click', () => navigatePrimary(t.dataset.nav)));
+document.querySelectorAll('.subnav-item[data-panel]').forEach(t => t.addEventListener('click', () => panel(t.dataset.panel)));
 e.providerSelect.addEventListener('change', renderModels);
 e.healthButton.addEventListener('click', () => health().catch(() => {}));
+if (e.contextRuntimeBtn) e.contextRuntimeBtn.addEventListener('click', () => openSheet('runtimeSheet'));
+if (e.contextScopeBtn) e.contextScopeBtn.addEventListener('click', () => openSheet('scopeSheet'));
+if (e.contextActorBtn) e.contextActorBtn.addEventListener('click', () => openSheet('runtimeSheet'));
+if (e.contextSessionBtn) e.contextSessionBtn.addEventListener('click', () => panel('code'));
+if (e.settingsOpenSheet) e.settingsOpenSheet.addEventListener('click', () => openSheet('runtimeSheet'));
+if (e.runtimeSheetRecheck) e.runtimeSheetRecheck.addEventListener('click', () => health().catch(() => {}));
+if (e.universeOpenScope) e.universeOpenScope.addEventListener('click', () => openSheet('scopeSheet'));
+if (e.universeOpenRuntime) e.universeOpenRuntime.addEventListener('click', () => openSheet('runtimeSheet'));
+document.querySelectorAll('[data-close-sheet]').forEach(btn => {
+  btn.addEventListener('click', () => closeSheet(btn.getAttribute('data-close-sheet')));
+});
 e.refreshModels.addEventListener('click', loadCapabilities);
 e.delegateButton.addEventListener('click', askCurrentScope);
 e.refreshInbox.addEventListener('click', refreshInbox);
@@ -1326,12 +1431,27 @@ e.universeMulti.addEventListener('click', () => {
   renderUniverse();
 });
 e.universeApply.addEventListener('click', applyUniverseMulti);
-document.addEventListener('keydown', event => { if (event.key === 'Escape' && !e.universeOverlay.classList.contains('hidden')) closeUniverse(); });
+document.addEventListener('keydown', event => {
+  if (event.key !== 'Escape') return;
+  if (!e.universeOverlay.classList.contains('hidden')) return closeUniverse();
+  if (e.scopeSheet && !e.scopeSheet.classList.contains('hidden')) return closeSheet('scopeSheet');
+  if (e.runtimeSheet && !e.runtimeSheet.classList.contains('hidden')) return closeSheet('runtimeSheet');
+});
 
-[e.runtimeUrl, e.actorId, e.inboxActor, e.activityActors].forEach(x => x.addEventListener('change', saveSettings));
+[e.runtimeUrl, e.actorId, e.inboxActor, e.activityActors].forEach(x => x.addEventListener('change', () => {
+  saveSettings();
+  syncContextBar();
+}));
+const codeSessionInput = $('codeSessionId');
+if (codeSessionInput) {
+  codeSessionInput.addEventListener('change', syncContextBar);
+  codeSessionInput.addEventListener('input', syncContextBar);
+}
 
 loadSettings();
 renderChatMode();
+syncContextBar();
+panel('chat');
 
 const inviteApi = initInvitePanel({
   mcpCall,
@@ -1358,3 +1478,4 @@ await loadVaultCatalog().catch(err => {
   e.scopeCatalog.innerHTML = `<p class="muted">${esc(err.message)}</p>`;
 });
 await loadCapabilities();
+syncContextBar();
