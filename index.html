@@ -161,9 +161,19 @@
           <p id="inboxHubBlurb" class="muted small comms-hub-blurb">Read immutable messages for one recipient. Reading may update delivery status only; the message stone stays immutable. Correspondence grants no execution authority.</p>
           <div id="inboxHubScopeNote" class="scope-caveat">Inbox is <strong>not</strong> auto-filtered by Scope: compact AC1 inbox metadata does not carry an authoritative chain association. Filtering would require inventing metadata or marking messages read.</div>
           <p class="muted small comms-identity-note">Identity = immutable <code>message_id</code> / <code>stone_hash</code> from the runtime — Console does not re-key correspondence.</p>
-          <label><span>Recipient actor</span><input id="inboxActor" value="console:jared" autocomplete="off"></label>
+          <div class="actor-inbox-nav" id="inboxActorNav" data-surface="inbox">
+            <div class="actor-nav-label" id="inboxActorNavLabel">Choose inbox</div>
+            <div id="inboxActorPicker" class="actor-picker" role="listbox" aria-labelledby="inboxActorNavLabel" aria-multiselectable="false"></div>
+            <div id="inboxPlaneTabs" class="mailbox-planes" role="tablist" aria-label="Mailbox plane"></div>
+            <p id="inboxActorMeta" class="muted small actor-nav-meta" aria-live="polite"></p>
+            <details class="actor-nav-advanced progressive-details">
+              <summary>Advanced / Custom Actor ID</summary>
+              <p class="muted small">Exact mailbox IDs for unusual or federated identities. Primary navigation stays on the actor picker above.</p>
+              <label><span>Custom recipient ID</span><input id="inboxActor" value="console:jared" autocomplete="off" spellcheck="false"></label>
+            </details>
+          </div>
           <label class="check-row"><input id="inboxGroupThreads" type="checkbox"><span>Group by thread</span></label>
-          <div id="inboxList" class="message-list" aria-live="polite"><p class="muted">Refresh to load correspondence.</p></div>
+          <div id="inboxList" class="message-list" aria-live="polite"><p class="muted">Choose an inbox, then refresh to load correspondence.</p></div>
         </div>
         <div class="card"><div class="eyebrow">Message reader</div><h2 id="messageTitle">No message selected</h2><div id="messageMeta" class="chips"></div><pre id="messageContent" class="code-block wrap">Select a message to read it. Reading mutates delivery state only; the message stone remains immutable.</pre></div>
       </section>
@@ -179,7 +189,16 @@
           <p id="handoffHubBlurb" class="muted small comms-hub-blurb">Creates immutable correspondence that transports intent and provenance. It grants no execution, mutation, or accepted-state authority.</p>
           <div id="handoffHubScopeNote" class="scope-caveat">Handoff association is explicit: choose one exact participating chain from the current Scope (AC1 carries one chain field).</div>
           <label><span>Associated chain <small>(must be an exact participating chain)</small></span><select id="handoffChain"></select></label>
-          <label><span>Recipients <small>(comma-separated actor IDs)</small></span><input id="handoffTo" placeholder="claude:cairnstone-v7"></label>
+          <div class="actor-inbox-nav" id="handoffActorNav" data-surface="handoff">
+            <div class="actor-nav-label" id="handoffActorNavLabel">Choose recipients</div>
+            <div id="handoffActorPicker" class="actor-picker" role="listbox" aria-labelledby="handoffActorNavLabel" aria-multiselectable="true"></div>
+            <p id="handoffActorMeta" class="muted small actor-nav-meta" aria-live="polite"></p>
+            <details class="actor-nav-advanced progressive-details">
+              <summary>Advanced / Custom Actor ID</summary>
+              <p class="muted small">Add unusual recipients by exact mailbox ID. Work plane defaults to <code>:cairnstone-v6</code>.</p>
+              <label><span>Recipients <small>(exact IDs; comma-separated fallback)</small></span><input id="handoffTo" placeholder="claude:cairnstone-v6" autocomplete="off" spellcheck="false"></label>
+            </details>
+          </div>
           <label><span>Subject</span><input id="handoffSubject" value="CairnStone V7 handoff"></label>
           <label><span>Task / intent</span><textarea id="handoffTask" rows="6" placeholder="Describe the continuation or task."></textarea></label>
           <div class="two-col"><label><span>Package ID <small>(optional)</small></span><input id="handoffPackage"></label><label><span>Priority</span><select id="handoffPriority"><option>low</option><option selected>normal</option><option>high</option><option>urgent</option></select></label></div>
@@ -201,12 +220,21 @@
           </div>
           <p id="activityHubBlurb" class="muted small comms-hub-blurb">Aggregated recent correspondence across actor inboxes you query. Same AC1 stones — presentation grouping only.</p>
           <div id="activityHubScopeNote" class="scope-caveat">Activity uses real recipient/thread metadata only. It is not silently filtered by the global Scope because compact AC1 listing metadata does not expose a trustworthy chain field.</div>
-          <label><span>Actor IDs <small>(comma-separated; each inbox is queried independently)</small></span><input id="activityActors" placeholder="console:jared, claude:cairnstone-v7"></label>
+          <div class="actor-inbox-nav" id="activityActorNav" data-surface="activity">
+            <div class="actor-nav-label" id="activityActorNavLabel">Whose activity?</div>
+            <div id="activityActorPicker" class="actor-picker" role="listbox" aria-labelledby="activityActorNavLabel" aria-multiselectable="true"></div>
+            <p id="activityActorMeta" class="muted small actor-nav-meta" aria-live="polite"></p>
+            <details class="actor-nav-advanced progressive-details">
+              <summary>Advanced / Custom Actor ID</summary>
+              <p class="muted small">Each mailbox is still queried independently via existing <code>cairnstone_get_inbox</code> — this field is fallback only.</p>
+              <label><span>Custom actor IDs</span><input id="activityActors" placeholder="console:jared, claude:cairnstone-v6" autocomplete="off" spellcheck="false"></label>
+            </details>
+          </div>
           <div class="two-col compact">
             <label><span>Filter</span><select id="activityFilter"><option value="all">All</option><option value="handoff">Handoffs only</option><option value="message">Messages/other</option></select></label>
             <label class="check-row"><input id="activityGroupThreads" type="checkbox" checked><span>Group by thread</span></label>
           </div>
-          <div id="activityList" class="message-list" aria-live="polite"><p class="muted">Refresh to load recent activity across the actor IDs above.</p></div>
+          <div id="activityList" class="message-list" aria-live="polite"><p class="muted">Choose actors, then refresh to load recent activity.</p></div>
         </div>
       </section>
       <section id="panel-stones" class="panel">
@@ -463,7 +491,7 @@ grok-bot:cairnstone-v6</textarea></label>
       </section>
       </main>
 
-      <footer>V7.7.9f Console · Chat · Work · Universe · Inbox · More · cross-device acceptance · Saved Views = presentation only · Scope is navigation/retrieval context, never synthetic global authority · accepted state remains in CairnStone</footer>
+      <footer>V7.7.9f Console · Actor Inbox Navigator · Chat · Work · Universe · Inbox · More · cross-device acceptance · Saved Views = presentation only · Scope is navigation/retrieval context, never synthetic global authority · accepted state remains in CairnStone</footer>
     </div>
 
     <nav class="nav-bottom" aria-label="Primary mobile">

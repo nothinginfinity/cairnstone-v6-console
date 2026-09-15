@@ -2,6 +2,10 @@
 
 A thin, provider-neutral browser client for the live CairnStone V7 runtime.
 
+## Actor & Inbox Discovery (post-V7.7.9)
+
+Inbox · Handoff · Activity share an **Actor Inbox Navigator**: friendly actor chips (Grok, Claude, ChatGPT, Grok Bot), Chat/Work mailbox planes (`:chat` / `:cairnstone-v6`), unread/recent badges from existing AC1 listings, multi-select Activity, and Advanced custom actor IDs. Presentation / discovery only — no new registry or authority. See `docs/ACTOR_INBOX_DISCOVERY.md`.
+
 ## V7.7.9f Cross-device UX acceptance
 
 V7.7.9 family closes with **9f**: live mobile (~390×844) + desktop (≥1280) acceptance, keyboard/focus + `prefers-reduced-motion`, loading/empty/error honesty, legacy reachability via More/Inbox, and authority/mutation boundary verification (navigation/Saved Views/Universe zoom do not call `set_head` / `set_path_head`; Authorize remains V7.3). See `docs/V7_7_9F_CROSS_DEVICE_ACCEPTANCE.md`.
