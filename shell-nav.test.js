@@ -99,6 +99,23 @@ test('Communications hub keeps Inbox · Handoff · Activity with shared list pat
   assert.doesNotMatch(app, /accepted_state_authority:\s*true/);
 });
 
+test('Actor Inbox Navigator is shared across Inbox · Handoff · Activity', () => {
+  assert.match(html, /id="inboxActorPicker"/);
+  assert.match(html, /id="inboxPlaneTabs"/);
+  assert.match(html, /id="activityActorPicker"/);
+  assert.match(html, /id="handoffActorPicker"/);
+  assert.match(html, /Choose inbox|Whose activity\?|Choose recipients/);
+  assert.match(html, /Advanced \/ Custom Actor ID/);
+  assert.doesNotMatch(html, /Actor IDs \(comma-separated; each inbox is queried independently\)/);
+  assert.match(app, /actor-inbox-nav/);
+  assert.match(app, /renderAllActorNavigators/);
+  assert.match(app, /cairnstone-v6/);
+  assert.doesNotMatch(app, /WORK_SUFFIX\s*=\s*['"]cairnstone-v7['"]/);
+  assert.match(css, /\.actor-inbox-nav/);
+  assert.match(css, /\.actor-picker/);
+  assert.match(css, /\.mailbox-planes/);
+});
+
 test('Universe v2 exposes semantic zoom and list/grid parity controls', () => {
   assert.match(html, /id="universeZoomIn"/);
   assert.match(html, /id="universeZoomOut"/);

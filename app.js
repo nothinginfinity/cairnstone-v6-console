@@ -32,6 +32,30 @@ import {
   sortMessagesNewestFirst
 } from './comms-hub.js';
 import {
+  ACTIVITY_NAV_STORE_KEY,
+  HANDOFF_NAV_STORE_KEY,
+  INBOX_NAV_STORE_KEY,
+  actorCardModel,
+  actorPickerPrompt,
+  buildActorDirectory,
+  collectObservedIdsFromMessages,
+  defaultHandoffRecipients,
+  filterMessagesByPlane,
+  loadJsonStore,
+  loadObservedIds,
+  mailboxPlaneBadge,
+  mergeObservedIds,
+  normalizeInboxSelection,
+  normalizeMultiSelection,
+  parseLegacyActorField,
+  parseMailboxId,
+  planesAvailable,
+  recipientIdsForSelection,
+  saveJsonStore,
+  saveObservedIds,
+  summarizeActorFromMessages
+} from './actor-inbox-nav.js';
+import {
   buildUniverseEntities,
   canZoomIn,
   canZoomOut,
@@ -102,7 +126,17 @@ const state = {
   universeMultiMode: false,
   universeMultiSelection: new Set(),
   activePanel: 'chat',
-  savedViewFreshness: null
+  savedViewFreshness: null,
+  actorNav: {
+    observed: [],
+    directory: [],
+    stats: {},
+    inbox: { actorKey: '', plane: 'all' },
+    activityKeys: [],
+    handoffKeys: [],
+    customActivityIds: [],
+    customHandoffIds: []
+  }
 };
 
 const PRIMARY_BY_PANEL = {
@@ -165,10 +199,13 @@ const e = {
   authorityStrip: $('authorityStrip'), answerDepthControls: $('answerDepthControls'), staleActions: $('staleActions'),
   authoritySummary: $('authoritySummary'), pathHeads: $('pathHeads'), skillsList: $('skillsList'), memoryRefs: $('memoryRefs'), observability: $('observability'), copyEvidence: $('copyEvidence'),
   inboxActor: $('inboxActor'), refreshInbox: $('refreshInbox'), inboxList: $('inboxList'), messageTitle: $('messageTitle'), messageMeta: $('messageMeta'), messageContent: $('messageContent'),
+  inboxActorPicker: $('inboxActorPicker'), inboxPlaneTabs: $('inboxPlaneTabs'), inboxActorMeta: $('inboxActorMeta'), inboxActorNavLabel: $('inboxActorNavLabel'),
   handoffChain: $('handoffChain'), handoffTo: $('handoffTo'), handoffSubject: $('handoffSubject'), handoffTask: $('handoffTask'), handoffPackage: $('handoffPackage'), handoffPriority: $('handoffPriority'),
+  handoffActorPicker: $('handoffActorPicker'), handoffActorMeta: $('handoffActorMeta'), handoffActorNavLabel: $('handoffActorNavLabel'),
   continuationHash: $('continuationHash'), continuationPath: $('continuationPath'), artifactOwner: $('artifactOwner'), artifactRepo: $('artifactRepo'), artifactPath: $('artifactPath'), artifactCommit: $('artifactCommit'),
   mirrorOwner: $('mirrorOwner'), mirrorRepo: $('mirrorRepo'), mirrorBranch: $('mirrorBranch'), mirrorPrefix: $('mirrorPrefix'), handoffButton: $('handoffButton'), handoffResult: $('handoffResult'),
   activityRefresh: $('activityRefresh'), activityActors: $('activityActors'), activityFilter: $('activityFilter'), activityGroupThreads: $('activityGroupThreads'), activityList: $('activityList'),
+  activityActorPicker: $('activityActorPicker'), activityActorMeta: $('activityActorMeta'), activityActorNavLabel: $('activityActorNavLabel'),
   stonesRefresh: $('stonesRefresh'), stonesQuery: $('stonesQuery'), stonesHead: $('stonesHead'), stonesList: $('stonesList'), stoneDetailTitle: $('stoneDetailTitle'), stoneDetailMeta: $('stoneDetailMeta'),
   stoneDetailSummary: $('stoneDetailSummary'), stoneDetailRaw: $('stoneDetailRaw'), copyStoneHash: $('copyStoneHash'),
   stonesEmptyState: $('stonesEmptyState'), stonesDetailBlock: $('stonesDetailBlock'), stonesRawBlock: $('stonesRawBlock'),
@@ -247,6 +284,7 @@ function loadSettings() {
   } catch {
     state.scopeRecents = [];
   }
+  loadActorNavSettings();
   renderAnswerDepthDefaults();
 }
 
@@ -258,6 +296,7 @@ function saveSettings() {
   localStorage.setItem('cs.scope.v1', JSON.stringify(normalizeScope(state.scope)));
   if (state.scope.mode === 'single_chain' && state.scope.chains?.[0]) localStorage.setItem('cs.chain', state.scope.chains[0]);
   if (e.toolDelegate) localStorage.setItem('cs.chat.toolDelegate.v1', e.toolDelegate.checked ? '1' : '0');
+  saveActorNavSettings();
 }
 
 async function mcpCall(name, args = {}) {
@@ -1080,17 +1119,348 @@ function evidenceCell([label, value]) {
   return `<div class="evidence-item"><span class="muted small">${esc(label)}</span><strong>${esc(String(value))}</strong></div>`;
 }
 
+/* —— Actor Inbox Navigator (presentation / discovery only) —— */
+
+function rebuildActorDirectory() {
+  state.actorNav.directory = buildActorDirectory({ observedIds: state.actorNav.observed });
+  return state.actorNav.directory;
+}
+
+function rememberObservedIds(ids = []) {
+  state.actorNav.observed = mergeObservedIds(state.actorNav.observed, ids);
+  saveObservedIds(state.actorNav.observed);
+  rebuildActorDirectory();
+}
+
+function loadActorNavSettings() {
+  const legacyInbox = parseLegacyActorField(e.inboxActor?.value || '');
+  const legacyActivity = parseLegacyActorField(e.activityActors?.value || '');
+  const legacyHandoff = parseLegacyActorField(e.handoffTo?.value || '');
+  const runtimeActor = parseLegacyActorField(e.actorId?.value || '');
+
+  state.actorNav.observed = mergeObservedIds(
+    loadObservedIds(),
+    [...legacyInbox.ids, ...legacyActivity.ids, ...legacyHandoff.ids, ...runtimeActor.ids]
+  );
+  rebuildActorDirectory();
+
+  const storedInbox = loadJsonStore(INBOX_NAV_STORE_KEY) || {};
+  if (!storedInbox.actorKey && legacyInbox.keys[0]) storedInbox.actorKey = legacyInbox.keys[0];
+  state.actorNav.inbox = normalizeInboxSelection(storedInbox, state.actorNav.directory);
+
+  const storedActivity = loadJsonStore(ACTIVITY_NAV_STORE_KEY);
+  const activityFallback = Array.isArray(storedActivity?.keys)
+    ? storedActivity.keys
+    : legacyActivity.keys;
+  state.actorNav.activityKeys = normalizeMultiSelection(activityFallback, state.actorNav.directory, {
+    fallbackKeys: legacyActivity.keys.length ? legacyActivity.keys : ['claude', 'grok']
+  });
+  state.actorNav.customActivityIds = Array.isArray(storedActivity?.customIds)
+    ? storedActivity.customIds
+    : [];
+
+  const storedHandoff = loadJsonStore(HANDOFF_NAV_STORE_KEY);
+  const handoffFallback = Array.isArray(storedHandoff?.keys)
+    ? storedHandoff.keys
+    : legacyHandoff.keys;
+  state.actorNav.handoffKeys = normalizeMultiSelection(handoffFallback, state.actorNav.directory, {
+    fallbackKeys: legacyHandoff.keys.length ? legacyHandoff.keys : ['claude']
+  });
+  state.actorNav.customHandoffIds = Array.isArray(storedHandoff?.customIds)
+    ? storedHandoff.customIds
+    : [];
+
+  syncInboxActorFieldFromSelection();
+  syncActivityActorsFieldFromSelection();
+  syncHandoffToFieldFromSelection();
+  renderAllActorNavigators();
+}
+
+function saveActorNavSettings() {
+  saveObservedIds(state.actorNav.observed);
+  saveJsonStore(INBOX_NAV_STORE_KEY, state.actorNav.inbox);
+  saveJsonStore(ACTIVITY_NAV_STORE_KEY, {
+    keys: state.actorNav.activityKeys,
+    customIds: state.actorNav.customActivityIds
+  });
+  saveJsonStore(HANDOFF_NAV_STORE_KEY, {
+    keys: state.actorNav.handoffKeys,
+    customIds: state.actorNav.customHandoffIds
+  });
+}
+
+function actorByKey(key) {
+  return state.actorNav.directory.find(a => a.key === key) || null;
+}
+
+function syncInboxActorFieldFromSelection() {
+  if (!e.inboxActor) return;
+  const actor = actorByKey(state.actorNav.inbox.actorKey);
+  const ids = recipientIdsForSelection(actor, state.actorNav.inbox.plane);
+  if (ids.length === 1) e.inboxActor.value = ids[0];
+  else if (ids.length > 1 && !ids.includes(e.inboxActor.value.trim())) {
+    e.inboxActor.value = ids[0];
+  }
+}
+
+function syncActivityActorsFieldFromSelection() {
+  if (!e.activityActors) return;
+  const fromActors = state.actorNav.activityKeys.flatMap(key => {
+    const actor = actorByKey(key);
+    return actor ? actor.allMailboxIds : [];
+  });
+  const covered = new Set(fromActors);
+  const extras = (state.actorNav.customActivityIds || []).filter(id => !covered.has(id));
+  const ids = [...fromActors, ...extras].map(s => String(s).trim()).filter(Boolean);
+  if (ids.length) e.activityActors.value = ids.join(', ');
+}
+
+function syncHandoffToFieldFromSelection() {
+  if (!e.handoffTo) return;
+  const fromActors = state.actorNav.handoffKeys.flatMap(key => defaultHandoffRecipients(actorByKey(key)));
+  const covered = new Set(fromActors);
+  const extras = (state.actorNav.customHandoffIds || []).filter(id => !covered.has(id));
+  const ids = [...fromActors, ...extras].map(s => String(s).trim()).filter(Boolean);
+  e.handoffTo.value = ids.join(', ');
+}
+
+function ingestCustomActorField(value, { into = 'observed' } = {}) {
+  const { ids } = parseLegacyActorField(value);
+  if (!ids.length) return ids;
+  rememberObservedIds(ids);
+  if (into === 'activity') {
+    state.actorNav.customActivityIds = mergeObservedIds([], ids);
+    const keys = ids.map(id => parseMailboxId(id)?.namespace?.toLowerCase()).filter(Boolean);
+    state.actorNav.activityKeys = normalizeMultiSelection(
+      [...state.actorNav.activityKeys, ...keys],
+      state.actorNav.directory,
+      { fallbackKeys: state.actorNav.activityKeys }
+    );
+  }
+  if (into === 'handoff') {
+    state.actorNav.customHandoffIds = mergeObservedIds([], ids);
+    const keys = ids.map(id => parseMailboxId(id)?.namespace?.toLowerCase()).filter(Boolean);
+    state.actorNav.handoffKeys = normalizeMultiSelection(
+      [...state.actorNav.handoffKeys, ...keys],
+      state.actorNav.directory,
+      { fallbackKeys: state.actorNav.handoffKeys }
+    );
+  }
+  if (into === 'inbox' && ids[0]) {
+    const parsed = parseMailboxId(ids[0]);
+    if (parsed?.namespace) {
+      state.actorNav.inbox = normalizeInboxSelection(
+        { actorKey: parsed.namespace.toLowerCase(), plane: parsed.plane === 'other' ? 'all' : (parsed.plane || 'all') },
+        state.actorNav.directory
+      );
+    }
+  }
+  return ids;
+}
+
+function renderActorPicker(container, {
+  mode = 'single',
+  selectedKeys = [],
+  onSelect
+} = {}) {
+  if (!container) return;
+  const selected = new Set(selectedKeys);
+  container.innerHTML = '';
+  for (const actor of state.actorNav.directory) {
+    const stats = state.actorNav.stats[actor.key] || null;
+    const card = actorCardModel(actor, {
+      selected: selected.has(actor.key),
+      stats,
+      mode
+    });
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'actor-chip';
+    btn.setAttribute('role', 'option');
+    btn.setAttribute('aria-selected', card.selected ? 'true' : 'false');
+    btn.dataset.actorKey = actor.key;
+    const unreadEmpty = card.unread ? '0' : '1';
+    const badges = card.badges.map(b => `<span class="plane-badge" data-plane="${esc(b.plane)}">${esc(b.label)}</span>`).join('');
+    const recent = card.recent
+      ? `<div class="actor-chip-recent">${esc(card.recent)}</div>`
+      : `<div class="actor-chip-recent">${esc(card.exactIds.join(' · ') || 'No mailbox yet')}</div>`;
+    btn.innerHTML = `<div class="actor-chip-top"><span class="actor-chip-name">${esc(card.display)}</span><span class="actor-chip-unread" data-empty="${unreadEmpty}">${card.unread ? esc(String(card.unread)) : '0'}</span></div><div class="actor-chip-badges">${badges}</div>${recent}`;
+    btn.addEventListener('click', () => onSelect?.(actor.key));
+    container.append(btn);
+  }
+}
+
+function renderInboxPlaneTabs() {
+  if (!e.inboxPlaneTabs) return;
+  const actor = actorByKey(state.actorNav.inbox.actorKey);
+  const planes = planesAvailable(actor);
+  const showPlanes = !!actor?.hasBothPlanes;
+  e.inboxPlaneTabs.classList.toggle('hidden', !showPlanes);
+  e.inboxPlaneTabs.innerHTML = '';
+  if (!showPlanes) {
+    if (state.actorNav.inbox.plane !== 'all') {
+      state.actorNav.inbox.plane = 'all';
+    }
+    return;
+  }
+  const labels = { all: 'All', chat: 'Chat', work: 'Work' };
+  for (const plane of planes) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'mailbox-plane-tab';
+    btn.setAttribute('role', 'tab');
+    btn.setAttribute('aria-selected', state.actorNav.inbox.plane === plane ? 'true' : 'false');
+    btn.dataset.plane = plane;
+    const unread = plane === 'all'
+      ? state.actorNav.stats[actor?.key]?.unread
+      : state.actorNav.stats[actor?.key]?.planeUnread?.[plane];
+    const suffix = unread ? ` · ${unread}` : '';
+    btn.textContent = `${labels[plane] || plane}${suffix}`;
+    btn.addEventListener('click', () => {
+      state.actorNav.inbox.plane = plane;
+      syncInboxActorFieldFromSelection();
+      saveActorNavSettings();
+      renderAllActorNavigators();
+      renderInbox();
+    });
+    e.inboxPlaneTabs.append(btn);
+  }
+}
+
+function actorNavMetaText(actorKeys, { plane = null } = {}) {
+  const actors = actorKeys.map(actorByKey).filter(Boolean);
+  if (!actors.length) return 'No actors selected.';
+  const bits = actors.map(a => {
+    const ids = plane ? recipientIdsForSelection(a, plane) : a.allMailboxIds;
+    return `${a.display} (${ids.join(', ')})`;
+  });
+  return bits.join(' · ');
+}
+
+function renderAllActorNavigators() {
+  if (e.inboxActorNavLabel) e.inboxActorNavLabel.textContent = actorPickerPrompt('inbox');
+  if (e.activityActorNavLabel) e.activityActorNavLabel.textContent = actorPickerPrompt('activity');
+  if (e.handoffActorNavLabel) e.handoffActorNavLabel.textContent = actorPickerPrompt('handoff');
+
+  renderActorPicker(e.inboxActorPicker, {
+    mode: 'single',
+    selectedKeys: state.actorNav.inbox.actorKey ? [state.actorNav.inbox.actorKey] : [],
+    onSelect: (key) => {
+      state.actorNav.inbox = normalizeInboxSelection(
+        { actorKey: key, plane: state.actorNav.inbox.plane },
+        state.actorNav.directory
+      );
+      syncInboxActorFieldFromSelection();
+      saveActorNavSettings();
+      renderAllActorNavigators();
+    }
+  });
+  renderInboxPlaneTabs();
+  if (e.inboxActorMeta) {
+    e.inboxActorMeta.textContent = actorNavMetaText(
+      state.actorNav.inbox.actorKey ? [state.actorNav.inbox.actorKey] : [],
+      { plane: state.actorNav.inbox.plane }
+    );
+  }
+
+  renderActorPicker(e.activityActorPicker, {
+    mode: 'multi',
+    selectedKeys: state.actorNav.activityKeys,
+    onSelect: (key) => {
+      const set = new Set(state.actorNav.activityKeys);
+      if (set.has(key)) {
+        if (set.size > 1) set.delete(key);
+      } else set.add(key);
+      state.actorNav.activityKeys = [...set];
+      state.actorNav.customActivityIds = [];
+      syncActivityActorsFieldFromSelection();
+      saveActorNavSettings();
+      renderAllActorNavigators();
+    }
+  });
+  if (e.activityActorMeta) {
+    e.activityActorMeta.textContent = actorNavMetaText(state.actorNav.activityKeys);
+  }
+
+  renderActorPicker(e.handoffActorPicker, {
+    mode: 'multi',
+    selectedKeys: state.actorNav.handoffKeys,
+    onSelect: (key) => {
+      const set = new Set(state.actorNav.handoffKeys);
+      if (set.has(key)) {
+        if (set.size > 1) set.delete(key);
+      } else set.add(key);
+      state.actorNav.handoffKeys = [...set];
+      state.actorNav.customHandoffIds = [];
+      syncHandoffToFieldFromSelection();
+      saveActorNavSettings();
+      renderAllActorNavigators();
+    }
+  });
+  if (e.handoffActorMeta) {
+    const recipients = (e.handoffTo?.value || '').split(',').map(s => s.trim()).filter(Boolean);
+    e.handoffActorMeta.textContent = recipients.length
+      ? `Will send to ${recipients.join(', ')}`
+      : 'Select at least one recipient.';
+  }
+}
+
+function inboxQueryRecipients() {
+  const actor = actorByKey(state.actorNav.inbox.actorKey);
+  const fromPicker = recipientIdsForSelection(actor, state.actorNav.inbox.plane);
+  if (fromPicker.length) return fromPicker;
+  const custom = e.inboxActor?.value?.trim();
+  return custom ? [custom] : [];
+}
+
+function activityQueryRecipients() {
+  syncActivityActorsFieldFromSelection();
+  const fromField = (e.activityActors?.value || '').split(',').map(s => s.trim()).filter(Boolean);
+  if (fromField.length) return [...new Set(fromField)];
+  const runtime = e.actorId?.value?.trim();
+  return runtime ? [runtime] : [];
+}
+
+function updateStatsFromMessages(messages, recipientHint = null) {
+  const byActor = new Map();
+  for (const m of messages || []) {
+    const box = m.for || m.recipient_id || recipientHint || '';
+    const parsed = parseMailboxId(box);
+    const key = parsed?.namespace?.toLowerCase();
+    if (!key) continue;
+    if (!byActor.has(key)) byActor.set(key, []);
+    byActor.get(key).push({ ...m, for: box });
+  }
+  for (const [key, msgs] of byActor.entries()) {
+    state.actorNav.stats[key] = summarizeActorFromMessages(msgs);
+  }
+}
+
 async function refreshInbox() {
-  const recipient = e.inboxActor.value.trim();
-  if (!recipient) return toast('Enter an inbox actor ID');
+  const recipients = inboxQueryRecipients();
+  if (!recipients.length) return toast('Choose an inbox or enter a custom actor ID');
   busy(e.refreshInbox, true, 'Loading…');
   const loading = commsListState({ loading: true, surface: 'inbox' });
   e.inboxList.innerHTML = `<p class="muted">${esc(loading.message)}</p>`;
   try {
-    const r = await mcpCall('cairnstone_get_inbox', { recipient_id: recipient, limit: 100 });
-    state.inbox = r.messages || [];
+    const results = await Promise.all(recipients.map(async recipient => {
+      try {
+        const r = await mcpCall('cairnstone_get_inbox', { recipient_id: recipient, limit: 100 });
+        return (r.messages || []).map(m => ({ ...m, for: recipient, recipient_id: recipient }));
+      } catch {
+        return [];
+      }
+    }));
+    state.inbox = results.flat();
+    rememberObservedIds([
+      ...recipients,
+      ...collectObservedIdsFromMessages(state.inbox)
+    ]);
+    updateStatsFromMessages(state.inbox);
+    state.actorNav.inbox = normalizeInboxSelection(state.actorNav.inbox, state.actorNav.directory);
+    renderAllActorNavigators();
     renderInbox();
-    toast(`${state.inbox.length} messages`);
+    toast(`${state.inbox.length} message${state.inbox.length === 1 ? '' : 's'}`);
   } catch (err) {
     const st = commsListState({ error: err, surface: 'inbox' });
     e.inboxList.innerHTML = `<p class="muted">${esc(st.message)}</p>`;
@@ -1103,17 +1473,23 @@ async function refreshInbox() {
 function messageRowHtml(row) {
   const unread = row.unread ? '● ' : '';
   const recipient = row.recipient_id ? `to ${esc(row.recipient_id)} · ` : '';
-  return `<div class="message-row-head"><span class="comms-intent-badge" data-intent="${esc(row.intent)}">${esc(row.intentLabel)}</span><strong>${unread}${esc(row.subject)}</strong></div><div class="meta">${recipient}from ${esc(row.sender_id)} · ${esc(row.priority)} · ${esc(row.status || '')}</div><div class="meta">${esc(short(row.stone_hash))}${row.message_id ? ` · ${esc(short(row.message_id))}` : ''}</div>`;
+  const plane = mailboxPlaneBadge(row.recipient_id || row.for);
+  const planeChip = plane
+    ? `<span class="message-plane-chip" data-plane="${esc(plane.plane)}">${esc(plane.label)}</span>`
+    : '';
+  return `<div class="message-row-head"><span class="comms-intent-badge" data-intent="${esc(row.intent)}">${esc(row.intentLabel)}</span><strong>${unread}${esc(row.subject)}</strong>${planeChip}</div><div class="meta">${recipient}from ${esc(row.sender_id)} · ${esc(row.priority)} · ${esc(row.status || '')}</div><div class="meta">${esc(short(row.stone_hash))}${row.message_id ? ` · ${esc(short(row.message_id))}` : ''}</div>`;
 }
 
 function renderInbox() {
-  const empty = commsListState({ count: state.inbox.length, surface: 'inbox' });
+  const plane = state.actorNav.inbox.plane || 'all';
+  const filtered = filterMessagesByPlane(state.inbox, plane);
+  const empty = commsListState({ count: filtered.length, surface: 'inbox' });
   if (empty.status === 'empty') {
     e.inboxList.innerHTML = `<p class="muted">${esc(empty.message)}</p>`;
     return;
   }
   e.inboxList.innerHTML = '';
-  const items = sortMessagesNewestFirst(state.inbox);
+  const items = sortMessagesNewestFirst(filtered);
   const appendRow = (m) => {
     const row = normalizeMessageRow(m, { surface: 'inbox' });
     const b = document.createElement('button');
@@ -1138,10 +1514,11 @@ function renderInbox() {
 
 async function readMessage(m) {
   e.messageTitle.textContent = 'Loading…';
+  const recipient = m.for || m.recipient_id || e.inboxActor.value.trim();
   try {
-    const r = await mcpCall('cairnstone_read_message', { recipient_id: e.inboxActor.value.trim(), message_id: m.message_id });
+    const r = await mcpCall('cairnstone_read_message', { recipient_id: recipient, message_id: m.message_id });
     e.messageTitle.textContent = r.metadata?.subject || m.subject || 'Message';
-    e.messageMeta.innerHTML = [['from', r.metadata?.from || m.sender_id], ['intent', r.metadata?.intent || m.intent], ['thread', r.thread_id], ['message_id', m.message_id], ['stone', short(r.stone_hash)], ['scope', r.mutation_scope], ['exec_authority', 'none']].map(([k, v]) => chip(`${k}: ${v || '—'}`)).join('');
+    e.messageMeta.innerHTML = [['from', r.metadata?.from || m.sender_id], ['to', recipient], ['intent', r.metadata?.intent || m.intent], ['thread', r.thread_id], ['message_id', m.message_id], ['stone', short(r.stone_hash)], ['scope', r.mutation_scope], ['exec_authority', 'none']].map(([k, v]) => chip(`${k}: ${v || '—'}`)).join('');
     e.messageContent.textContent = pretty(r.content);
     await refreshInbox();
   } catch (err) {
@@ -1151,6 +1528,7 @@ async function readMessage(m) {
 }
 
 async function handoff() {
+  syncHandoffToFieldFromSelection();
   const to = e.handoffTo.value.split(',').map(v => v.trim()).filter(Boolean);
   const task = e.handoffTask.value.trim();
   const chain = e.handoffChain.value.trim();
@@ -1158,6 +1536,8 @@ async function handoff() {
   if (!handoffChainAllowed(chain, state.scopeSnapshot?.chains || [])) {
     return toast('Handoff chain must be an exact participating chain in the current Scope');
   }
+
+  rememberObservedIds(to);
 
   const a = {
     from: e.actorId.value.trim(),
@@ -1200,8 +1580,8 @@ async function handoff() {
 }
 
 async function refreshActivity() {
-  const actors = (e.activityActors.value || '').split(',').map(s => s.trim()).filter(Boolean);
-  if (!actors.length) actors.push(e.actorId.value.trim());
+  const actors = activityQueryRecipients();
+  if (!actors.length) return toast('Choose actors or enter a custom actor ID');
   busy(e.activityRefresh, true, 'Loading…');
   const loading = commsListState({ loading: true, surface: 'activity' });
   e.activityList.innerHTML = `<p class="muted">${esc(loading.message)}</p>`;
@@ -1209,14 +1589,25 @@ async function refreshActivity() {
     const results = await Promise.all(actors.map(async actor => {
       try {
         const r = await mcpCall('cairnstone_get_inbox', { recipient_id: actor, limit: 50 });
-        return (r.messages || []).map(m => ({ ...m, for: actor }));
+        return (r.messages || []).map(m => ({ ...m, for: actor, recipient_id: actor }));
       } catch {
         return [];
       }
     }));
     state.activity = results.flat();
+    rememberObservedIds([
+      ...actors,
+      ...collectObservedIdsFromMessages(state.activity)
+    ]);
+    updateStatsFromMessages(state.activity);
+    state.actorNav.activityKeys = normalizeMultiSelection(
+      state.actorNav.activityKeys,
+      state.actorNav.directory,
+      { fallbackKeys: state.actorNav.activityKeys }
+    );
+    renderAllActorNavigators();
     renderActivity();
-    toast(`${state.activity.length} activity item${state.activity.length === 1 ? '' : 's'} across ${actors.length} actor${actors.length === 1 ? '' : 's'}`);
+    toast(`${state.activity.length} activity item${state.activity.length === 1 ? '' : 's'} across ${actors.length} mailbox${actors.length === 1 ? '' : 'es'}`);
   } catch (err) {
     const st = commsListState({ error: err, surface: 'activity' });
     e.activityList.innerHTML = `<p class="muted">${esc(st.message)}</p>`;
@@ -1259,7 +1650,11 @@ function activityItemEl(m) {
 }
 
 async function readActivityMessage(m) {
-  e.inboxActor.value = m.for || m.recipient_id || e.inboxActor.value;
+  const recipient = m.for || m.recipient_id || e.inboxActor.value;
+  if (recipient) {
+    e.inboxActor.value = recipient;
+    ingestCustomActorField(recipient, { into: 'inbox' });
+  }
   await readMessage(m);
   panel('inbox');
   await refreshActivity();
@@ -2185,6 +2580,34 @@ if (e.toolDelegate) e.toolDelegate.addEventListener('change', () => { saveSettin
 e.activityRefresh.addEventListener('click', refreshActivity);
 e.activityFilter.addEventListener('change', renderActivity);
 e.activityGroupThreads.addEventListener('change', renderActivity);
+if (e.inboxActor) {
+  e.inboxActor.addEventListener('change', () => {
+    ingestCustomActorField(e.inboxActor.value, { into: 'inbox' });
+    saveSettings();
+    renderAllActorNavigators();
+  });
+}
+if (e.activityActors) {
+  e.activityActors.addEventListener('change', () => {
+    ingestCustomActorField(e.activityActors.value, { into: 'activity' });
+    syncActivityActorsFieldFromSelection();
+    saveSettings();
+    renderAllActorNavigators();
+  });
+}
+if (e.handoffTo) {
+  e.handoffTo.addEventListener('change', () => {
+    ingestCustomActorField(e.handoffTo.value, { into: 'handoff' });
+    // Preserve explicit custom list as source of truth when Advanced is edited
+    const { ids } = parseLegacyActorField(e.handoffTo.value);
+    state.actorNav.customHandoffIds = ids;
+    const keys = ids.map(id => parseMailboxId(id)?.namespace?.toLowerCase()).filter(Boolean);
+    const matched = keys.filter(k => state.actorNav.directory.some(a => a.key === k));
+    if (matched.length) state.actorNav.handoffKeys = [...new Set(matched)];
+    saveSettings();
+    renderAllActorNavigators();
+  });
+}
 e.stonesRefresh.addEventListener('click', refreshStones);
 e.copyStoneHash.addEventListener('click', () => copy(state.selectedStone?.hash || state.selectedStone?.stone_hash || ''));
 e.authorizationRefresh.addEventListener('click', refreshAuthorizations);
