@@ -2,6 +2,10 @@
 
 A thin, provider-neutral browser client for the live CairnStone V7 runtime.
 
+## Message Reader focus (post-V7.7.9)
+
+Inbox/Activity selection opens the Message Reader immediately: **mobile** uses a focused detail sheet with Back (list scroll + actor/plane/filter restored); **desktop** keeps the inline reader and scrolls it into view. Presentation only — still `cairnstone_read_message`. UX stone `bc4b28fe…`. See `docs/MESSAGE_READER_FOCUS.md`.
+
 ## Actor & Inbox Discovery (post-V7.7.9)
 
 Inbox · Handoff · Activity share an **Actor Inbox Navigator**: friendly actor chips (Grok, Claude, ChatGPT, Grok Bot), Chat/Work mailbox planes (`:chat` / `:cairnstone-v6`), unread/recent badges from existing AC1 listings, multi-select Activity, and Advanced custom actor IDs. Presentation / discovery only — no new registry or authority. See `docs/ACTOR_INBOX_DISCOVERY.md`.
@@ -97,7 +101,7 @@ Then open `http://localhost:8080`.
 Unit tests:
 
 ```bash
-node --test answer-depth.test.js shell-nav.test.js chat-evidence.test.js work-surface.test.js comms-hub.test.js universe-v2.test.js saved-views.test.js progressive-disclosure.test.js ux-acceptance.test.js
+node --test answer-depth.test.js shell-nav.test.js chat-evidence.test.js work-surface.test.js comms-hub.test.js universe-v2.test.js saved-views.test.js progressive-disclosure.test.js ux-acceptance.test.js actor-inbox-nav.test.js message-reader-focus.test.js
 ```
 
 ## Operator setup

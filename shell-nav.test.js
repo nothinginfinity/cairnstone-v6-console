@@ -23,7 +23,7 @@ test('legacy capabilities remain reachable as panels or sheets', () => {
   for (const id of [
     'panel-chat', 'panel-code', 'panel-universe', 'panel-inbox', 'panel-handoff', 'panel-activity',
     'panel-stones', 'panel-evidence', 'panel-authorize', 'panel-invite', 'panel-settings',
-    'scopeSheet', 'runtimeSheet', 'chatConfigSheet', 'evidenceDrawer', 'savedViewsSheet', 'universeOverlay',
+    'scopeSheet', 'runtimeSheet', 'chatConfigSheet', 'evidenceDrawer', 'savedViewsSheet', 'messageReaderSheet', 'universeOverlay',
     'answerDepthControls', 'codeSessionId', 'operatorToken', 'taskInput', 'openChatConfig', 'openEvidenceDrawer',
     'contextViewsBtn', 'savedViewSave', 'stonesRawBlock', 'authorizeRawBlock', 'evidenceDisclosure'
   ]) {
@@ -96,6 +96,21 @@ test('Communications hub keeps Inbox · Handoff · Activity with shared list pat
   assert.match(app, /groupMessagesByThread/);
   assert.match(app, /handoffChainAllowed/);
   assert.match(app, /syncCommsHub/);
+  assert.doesNotMatch(app, /accepted_state_authority:\s*true/);
+});
+
+test('Message Reader focus opens a mobile sheet and preserves list context', () => {
+  assert.match(html, /id="messageReaderSheet"/);
+  assert.match(html, /id="messageReaderBack"/);
+  assert.match(html, /id="messageReaderCard"/);
+  assert.match(html, /id="messageReaderSheetTitle"/);
+  assert.match(html, /messageTitle" tabindex="-1"/);
+  assert.match(css, /\.message-reader-panel/);
+  assert.match(css, /@media\(max-width:859px\)/);
+  assert.match(app, /message-reader-focus/);
+  assert.match(app, /openMessageReaderFocus|closeMessageReaderFocus/);
+  assert.match(app, /shouldUseFocusedReader/);
+  assert.match(app, /cairnstone_read_message/);
   assert.doesNotMatch(app, /accepted_state_authority:\s*true/);
 });
 
