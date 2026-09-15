@@ -23,6 +23,7 @@ export const REACHABILITY_MAP = Object.freeze([
   { capability: 'Handoff', path: 'Primary → Inbox → Handoff', panel: 'handoff', primary: 'inbox' },
   { capability: 'Activity', path: 'Primary → Inbox → Activity', panel: 'activity', primary: 'inbox' },
   { capability: 'Stones', path: 'Primary → More → Stones', panel: 'stones', primary: 'more' },
+  { capability: 'Access grants (Give Access / Assign / Forward)', path: 'Primary → More → Access · share sheet from Message Reader / Stones / Evidence / Work', panel: 'access', primary: 'more', sheet: 'shareSheet' },
   { capability: 'Authorize (V7.3)', path: 'Primary → More → Authorize', panel: 'authorize', primary: 'more' },
   { capability: 'Invite / mailbox', path: 'Primary → More → Invite', panel: 'invite', primary: 'more' },
   { capability: 'Runtime MCP + actor', path: 'Context bar → Runtime / Actor sheets · More → Runtime', panel: 'settings', primary: 'more', sheet: 'runtimeSheet' },
@@ -55,7 +56,13 @@ export const PRESENTATION_SAFE_MCP = Object.freeze([
   'cairnstone_manifest_v2',
   'cairnstone_code_session_console_view',
   'cairnstone_send_message',
-  'cairnstone_workspace_propose_accept'
+  'cairnstone_workspace_propose_accept',
+  'cairnstone_access_grant_create',
+  'cairnstone_access_grant_list',
+  'cairnstone_access_grant_revoke',
+  'cairnstone_attachment_ref_resolve',
+  'cairnstone_task_run_propose',
+  'cairnstone_forward_with_note'
 ]);
 
 /**

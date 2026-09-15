@@ -22,8 +22,8 @@ test('primary IA is Chat · Work · Universe · Inbox · More', () => {
 test('legacy capabilities remain reachable as panels or sheets', () => {
   for (const id of [
     'panel-chat', 'panel-code', 'panel-universe', 'panel-inbox', 'panel-handoff', 'panel-activity',
-    'panel-stones', 'panel-evidence', 'panel-authorize', 'panel-invite', 'panel-settings',
-    'scopeSheet', 'runtimeSheet', 'chatConfigSheet', 'evidenceDrawer', 'savedViewsSheet', 'messageReaderSheet', 'universeOverlay',
+    'panel-stones', 'panel-evidence', 'panel-access', 'panel-authorize', 'panel-invite', 'panel-settings',
+    'scopeSheet', 'runtimeSheet', 'chatConfigSheet', 'evidenceDrawer', 'savedViewsSheet', 'messageReaderSheet', 'shareSheet', 'universeOverlay',
     'answerDepthControls', 'codeSessionId', 'operatorToken', 'taskInput', 'openChatConfig', 'openEvidenceDrawer',
     'contextViewsBtn', 'savedViewSave', 'stonesRawBlock', 'authorizeRawBlock', 'evidenceDisclosure'
   ]) {
@@ -131,6 +131,25 @@ test('Actor Inbox Navigator is shared across Inbox · Handoff · Activity', () =
   assert.match(css, /\.actor-inbox-nav/);
   assert.match(css, /\.actor-picker/);
   assert.match(css, /\.mailbox-planes/);
+});
+
+test('V7.7.10b Give Access / Assign / Forward share sheet + Access panel', () => {
+  assert.match(html, /id="shareSheet"/);
+  assert.match(html, /id="panel-access"/);
+  assert.match(html, /Give access…/);
+  assert.match(html, /Assign \/ Ask to work/);
+  assert.match(html, /Forward with note/);
+  assert.match(html, /id="shareActorPicker"/);
+  assert.match(html, /id="shareHumanCommit"/);
+  assert.match(html, /data-panel="access"/);
+  assert.match(app, /access-share/);
+  assert.match(app, /ACCESS_GRANT_TOOLS|cairnstone_access_grant/);
+  assert.match(app, /openShareSheet/);
+  assert.match(app, /Human Commit|shareHumanCommit/);
+  assert.doesNotMatch(app, /mcpCall\(\s*['"]cairnstone_set_head['"]/);
+  assert.doesNotMatch(app, /mcpCall\(\s*['"]cairnstone_set_path_head['"]/);
+  assert.match(css, /\.share-actions/);
+  assert.match(css, /\.share-commit-row/);
 });
 
 test('Universe v2 exposes semantic zoom and list/grid parity controls', () => {

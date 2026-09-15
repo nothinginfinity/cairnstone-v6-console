@@ -33,7 +33,7 @@ test('legacy capabilities remain reachable via primary or More/Inbox subnav', ()
   const panels = new Set(legacyPanelsReachable());
   for (const id of [
     'chat', 'code', 'universe', 'inbox', 'handoff', 'activity',
-    'stones', 'evidence', 'authorize', 'invite', 'settings'
+    'stones', 'evidence', 'access', 'authorize', 'invite', 'settings'
   ]) {
     assert.ok(panels.has(id), `missing panel reachability for ${id}`);
     assert.match(html, new RegExp(`id="panel-${id}"`));
@@ -81,7 +81,7 @@ test('acceptance viewports and matrix doc exist', () => {
   assert.match(acceptanceDoc, /prefers-reduced-motion/i);
   assert.match(acceptanceDoc, /Authorize|set_head|mutation/i);
   assert.match(acceptanceDoc, /0\.5\.38/);
-  assert.match(html, /V7\.7\.9f/);
+  assert.match(html, /V7\.7\.(9f|10b)/);
 });
 
 test('Saved Views open still requires fresh resolve_scope; response_lod ≠ stone_lod', () => {

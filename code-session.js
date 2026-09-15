@@ -58,6 +58,8 @@ export function initCodeSessionPanel(api) {
     send: document.getElementById('codeSendMessage'),
     checkpoints: document.getElementById('codeCheckpoints'),
     viewWork: document.getElementById('codeViewWork'),
+    giveAccess: document.getElementById('codeGiveAccess'),
+    assign: document.getElementById('codeAssign'),
     propose: document.getElementById('codeProposeMerge'),
     proposeForm: document.getElementById('codeProposeForm'),
     proposeTitle: document.getElementById('codeProposeTitle'),
@@ -101,7 +103,7 @@ export function initCodeSessionPanel(api) {
   }
 
   function setActionsEnabled(on) {
-    [els.invite, els.send, els.checkpoints, els.viewWork, els.propose].forEach(btn => {
+    [els.invite, els.send, els.checkpoints, els.viewWork, els.propose, els.giveAccess, els.assign].forEach(btn => {
       if (btn) btn.disabled = !on;
     });
   }

@@ -62,6 +62,7 @@
       <div id="moreSubnav" class="subnav hidden" role="tablist" aria-label="More surfaces">
         <button class="subnav-item" data-panel="stones" type="button">Stones</button>
         <button class="subnav-item" data-panel="evidence" type="button">Evidence</button>
+        <button class="subnav-item" data-panel="access" type="button">Access</button>
         <button class="subnav-item" data-panel="authorize" type="button">Authorize</button>
         <button class="subnav-item" data-panel="invite" type="button">Invite</button>
         <button class="subnav-item" data-panel="settings" type="button">Runtime</button>
@@ -147,6 +148,11 @@
               <pre id="observability" class="code-block">{}</pre>
             </details>
           </div>
+          <div id="evidenceShareActions" class="share-actions" hidden>
+            <button type="button" class="secondary" data-share-mode="give-access" data-share-source="evidence">Give access…</button>
+            <button type="button" class="secondary" data-share-mode="assign" data-share-source="evidence">Assign / Ask to work</button>
+            <button type="button" class="secondary" data-share-mode="forward" data-share-source="evidence">Forward with note</button>
+          </div>
         </div>
       </section>
       <section id="panel-inbox" class="panel">
@@ -179,6 +185,11 @@
           <div class="eyebrow">Message reader</div>
           <h2 id="messageTitle" tabindex="-1">No message selected</h2>
           <div id="messageMeta" class="chips"></div>
+          <div id="messageShareActions" class="share-actions" hidden>
+            <button type="button" class="secondary" data-share-mode="give-access" data-share-source="message-reader">Give access…</button>
+            <button type="button" class="secondary" data-share-mode="assign" data-share-source="message-reader">Assign / Ask to work</button>
+            <button type="button" class="secondary" data-share-mode="forward" data-share-source="message-reader">Forward with note</button>
+          </div>
           <pre id="messageContent" class="code-block wrap">Select a message to read it. Reading mutates delivery state only; the message stone remains immutable.</pre>
         </div>
       </section>
@@ -271,7 +282,28 @@
               <pre id="stoneDetailRaw" class="code-block wrap">Raw LOD fields and refs appear here after selection. stone_lod is storage LOD — not Answer Depth response_lod.</pre>
             </details>
           </div>
-          <button id="copyStoneHash" class="secondary" type="button" disabled>Copy hash</button>
+          <div class="share-actions stone-share-actions">
+            <button id="copyStoneHash" class="secondary" type="button" disabled>Copy hash</button>
+            <button type="button" class="secondary" data-share-mode="give-access" data-share-source="stones" disabled id="stoneGiveAccess">Give access…</button>
+            <button type="button" class="secondary" data-share-mode="assign" data-share-source="stones" disabled id="stoneAssign">Assign / Ask to work</button>
+            <button type="button" class="secondary" data-share-mode="forward" data-share-source="stones" disabled id="stoneForward">Forward with note</button>
+          </div>
+        </div>
+      </section>
+      <section id="panel-access" class="panel">
+        <div class="card access-grants-card">
+          <div class="section-heading">
+            <div>
+              <div class="eyebrow">V7.7.10b · canonical-object sharing</div>
+              <h2>Access grants</h2>
+            </div>
+            <button id="accessGrantsRefresh" class="secondary" type="button">Refresh</button>
+          </div>
+          <p class="muted small">Operational <code>cairnstone-access-grant-v1</code> rows over typed object refs. Visibility ≠ execute. Revoke blocks <strong>future</strong> access only. Worker APIs expected on <strong>0.5.40</strong>; Console degrades honestly if tools are missing. Human Commit required for grant / revoke.</p>
+          <div class="scope-caveat">Presentation never calls <code>set_head</code> / <code>set_path_head</code>. Grants never silently widen Scope, workspace, or Code Session capability.</div>
+          <label><span>Filter by object_ref <small>(optional)</small></span><input id="accessGrantsObjectRef" placeholder="msg:… / stone:… / session:…" autocomplete="off" spellcheck="false"></label>
+          <div id="accessGrantsHonesty" class="muted small" aria-live="polite">Load grants after worker 0.5.40 exposes <code>cairnstone_access_grant_list</code>.</div>
+          <div id="accessGrantsList" class="message-list" aria-live="polite"><p class="muted">No grants loaded.</p></div>
         </div>
       </section>
       <section id="panel-code" class="panel">
@@ -304,6 +336,8 @@
               <button id="codeSendMessage" class="secondary" type="button" disabled>Send Message</button>
               <button id="codeCheckpoints" class="secondary" type="button" disabled>Checkpoints</button>
               <button id="codeViewWork" class="secondary" type="button" disabled>View Work</button>
+              <button id="codeGiveAccess" class="secondary" type="button" disabled data-share-mode="give-access" data-share-source="work">Give access…</button>
+              <button id="codeAssign" class="secondary" type="button" disabled data-share-mode="assign" data-share-source="work">Assign / Ask to work</button>
               <button id="codeProposeMerge" class="primary compact-button" type="button" disabled>Propose / Merge</button>
             </div>
             <div class="work-disclosure" id="codeDisclosure">
@@ -496,7 +530,7 @@ grok-bot:cairnstone-v6</textarea></label>
       </section>
       </main>
 
-      <footer>V7.7.9f Console · Actor Inbox Navigator · Chat · Work · Universe · Inbox · More · cross-device acceptance · Saved Views = presentation only · Scope is navigation/retrieval context, never synthetic global authority · accepted state remains in CairnStone</footer>
+      <footer>V7.7.10b Console · Give Access / Assign / Forward-with-note · Actor Inbox Navigator · Chat · Work · Universe · Inbox · More · Scope is navigation/retrieval context · presentation never moves HEADs · accepted state remains in CairnStone</footer>
     </div>
 
     <nav class="nav-bottom" aria-label="Primary mobile">
@@ -639,6 +673,11 @@ grok-bot:cairnstone-v6</textarea></label>
         <div id="evidenceDrawerBody" class="evidence-drawer-body">
           <p class="muted">Ask for a grounded response to inspect citations, claims, authority freshness, and receipt fields bound to that <code>response_id</code>.</p>
         </div>
+        <div id="evidenceDrawerShareActions" class="share-actions" hidden>
+          <button type="button" class="secondary" data-share-mode="give-access" data-share-source="evidence">Give access…</button>
+          <button type="button" class="secondary" data-share-mode="assign" data-share-source="evidence">Assign / Ask to work</button>
+          <button type="button" class="secondary" data-share-mode="forward" data-share-source="evidence">Forward with note</button>
+        </div>
       </div>
     </div>
   </div>
@@ -655,7 +694,77 @@ grok-bot:cairnstone-v6</textarea></label>
       </header>
       <div class="sheet-body message-reader-sheet-body">
         <div id="messageReaderSheetMeta" class="chips"></div>
+        <div id="messageReaderSheetShareActions" class="share-actions" hidden>
+          <button type="button" class="secondary" data-share-mode="give-access" data-share-source="message-reader">Give access…</button>
+          <button type="button" class="secondary" data-share-mode="assign" data-share-source="message-reader">Assign / Ask to work</button>
+          <button type="button" class="secondary" data-share-mode="forward" data-share-source="message-reader">Forward with note</button>
+        </div>
         <pre id="messageReaderSheetContent" class="code-block wrap message-reader-body">Select a message to read it. Reading mutates delivery state only; the message stone remains immutable.</pre>
+      </div>
+    </div>
+  </div>
+
+  <div id="shareSheet" class="sheet hidden" role="dialog" aria-modal="true" aria-labelledby="shareSheetTitle">
+    <div class="sheet-backdrop" data-close-sheet="shareSheet"></div>
+    <div class="sheet-panel share-sheet-panel">
+      <header class="sheet-header">
+        <div>
+          <div class="eyebrow">V7.7.10b · Share</div>
+          <h2 id="shareSheetTitle">Give access…</h2>
+        </div>
+        <button class="secondary" type="button" data-close-sheet="shareSheet">Close</button>
+      </header>
+      <div class="sheet-body">
+        <p id="shareSheetBlurb" class="muted small">Share one canonical object identity. Give Access does not copy payloads. Assign proposes a Task Run over the same refs. Forward with note creates new AC1 commentary that references the original.</p>
+        <div class="share-mode-tabs" role="tablist" aria-label="Share operation">
+          <button type="button" class="secondary share-mode-tab active" data-share-tab="give-access">Give access</button>
+          <button type="button" class="secondary share-mode-tab" data-share-tab="assign">Assign</button>
+          <button type="button" class="secondary share-mode-tab" data-share-tab="forward">Forward with note</button>
+        </div>
+        <div class="share-object-block">
+          <div class="eyebrow">Canonical object_ref</div>
+          <strong id="shareObjectRef" class="wrap-anywhere">—</strong>
+          <div id="shareObjectMeta" class="chips"></div>
+          <p id="shareResolveNote" class="muted small">Local parse until <code>cairnstone_attachment_ref_resolve</code> is live.</p>
+        </div>
+        <div class="actor-inbox-nav" id="shareActorNav" data-surface="share">
+          <div class="actor-nav-label" id="shareActorNavLabel">Choose principal</div>
+          <div id="shareActorPicker" class="actor-picker" role="listbox" aria-labelledby="shareActorNavLabel" aria-multiselectable="false"></div>
+          <p id="shareActorMeta" class="muted small actor-nav-meta" aria-live="polite"></p>
+          <details class="actor-nav-advanced progressive-details">
+            <summary>Advanced / Custom Actor ID</summary>
+            <label><span>Exact principal mailbox</span><input id="sharePrincipal" placeholder="grok:cairnstone-v6" autocomplete="off" spellcheck="false"></label>
+          </details>
+        </div>
+        <div id="shareGiveFields">
+          <label><span>Permission</span>
+            <select id="sharePermission">
+              <option value="read" selected>read — visibility only</option>
+              <option value="discuss">discuss — Conversation Session attach; no mutate/execute</option>
+              <option value="execute-against">execute-against — still needs human Task Run; grant alone does not execute</option>
+            </select>
+          </label>
+          <label class="check-row"><input id="shareNotify" type="checkbox"><span>Notify recipient on grant</span></label>
+        </div>
+        <div id="shareAssignFields" class="hidden">
+          <label><span>Ask / task</span><textarea id="shareAssignTask" rows="3" placeholder="Ask this actor to work on the same object refs…"></textarea></label>
+          <p class="muted small">Creates a Task Run <strong>proposal</strong> only (not auto-dispatch). Assign does not grant access by itself.</p>
+        </div>
+        <div id="shareForwardFields" class="hidden">
+          <label><span>Note / commentary</span><textarea id="shareForwardNote" rows="4" placeholder="Intentional new correspondence referencing the original object…"></textarea></label>
+          <label><span>Subject</span><input id="shareForwardSubject" value="Forward with note"></label>
+        </div>
+        <div id="shareProposalCard" class="share-proposal-card">
+          <div class="eyebrow">Proposal summary</div>
+          <strong id="shareProposalTitle">Incomplete</strong>
+          <ul id="shareProposalLines" class="share-proposal-lines muted small"></ul>
+        </div>
+        <label class="check-row share-commit-row"><input id="shareHumanCommit" type="checkbox"><span>Human Commit — I approve this consequential mutation (grant / revoke / assign proposal / forward)</span></label>
+        <div class="invite-actions">
+          <button id="shareCommitButton" class="primary" type="button" disabled>Commit</button>
+          <button class="secondary" type="button" data-close-sheet="shareSheet">Cancel</button>
+        </div>
+        <pre id="shareResult" class="code-block wrap">No share action committed yet.</pre>
       </div>
     </div>
   </div>

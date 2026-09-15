@@ -2,6 +2,10 @@
 
 A thin, provider-neutral browser client for the live CairnStone V7 runtime.
 
+## V7.7.10b Give Access / Assign / Forward-with-note
+
+Console entry points for **canonical-object sharing**: Give access… (access grant over typed `object_ref`), Assign / Ask to work (Task Run **proposal** only), and Forward with note (new AC1 referencing the original). Reuses Actor Inbox Navigator for principal pick; Human Commit required; presentation never moves HEADs. Worker grant APIs expected on **0.5.40** — Console degrades honestly if tools are absent. See `docs/V7_7_10B_CONSOLE_GIVE_ACCESS_ASSIGN.md`.
+
 ## Message Reader focus (post-V7.7.9)
 
 Inbox/Activity selection opens the Message Reader immediately: **mobile** uses a focused detail sheet with Back (list scroll + actor/plane/filter restored); **desktop** keeps the inline reader and scrolls it into view. Presentation only — still `cairnstone_read_message`. UX stone `bc4b28fe…`. See `docs/MESSAGE_READER_FOCUS.md`.
@@ -101,7 +105,7 @@ Then open `http://localhost:8080`.
 Unit tests:
 
 ```bash
-node --test answer-depth.test.js shell-nav.test.js chat-evidence.test.js work-surface.test.js comms-hub.test.js universe-v2.test.js saved-views.test.js progressive-disclosure.test.js ux-acceptance.test.js actor-inbox-nav.test.js message-reader-focus.test.js
+node --test answer-depth.test.js shell-nav.test.js chat-evidence.test.js work-surface.test.js comms-hub.test.js universe-v2.test.js saved-views.test.js progressive-disclosure.test.js ux-acceptance.test.js actor-inbox-nav.test.js message-reader-focus.test.js access-share.test.js
 ```
 
 ## Operator setup
