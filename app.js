@@ -89,7 +89,19 @@ import {
   stonesDisclosureModel,
   workDisclosurePrefsFromDom
 } from './progressive-disclosure.js';
-import { applyReducedMotionClass } from './ux-acceptance.js';
+import { applyReducedMotionClass, prefersReducedMotion } from './ux-acceptance.js';
+import {
+  MESSAGE_READER_SHEET_ID,
+  captureListScroll,
+  focusReaderTitle,
+  readerErrorCopy,
+  readerLoadingCopy,
+  restoreListScroll,
+  shouldNavigateToInboxForRead,
+  shouldPopReaderHistory,
+  shouldPushReaderHistory,
+  shouldUseFocusedReader
+} from './message-reader-focus.js';
 
 const DEFAULT_RUNTIME = 'https://cairnstone-v6.jaredtechfit.workers.dev/mcp';
 const DEFAULT_CHAIN = 'cairnstone-v6-project-memory';
@@ -136,6 +148,13 @@ const state = {
     handoffKeys: [],
     customActivityIds: [],
     customHandoffIds: []
+  },
+  messageReader: {
+    source: null,
+    scrollSnap: null,
+    returnPanel: null,
+    historyPushed: false,
+    closingFromPopstate: false
   }
 };
 
@@ -168,6 +187,9 @@ const e = {
   inboxSubnav: $('inboxSubnav'), moreSubnav: $('moreSubnav'),
   inboxGroupThreads: $('inboxGroupThreads'),
   scopeSheet: $('scopeSheet'), runtimeSheet: $('runtimeSheet'), chatConfigSheet: $('chatConfigSheet'), evidenceDrawer: $('evidenceDrawer'),
+  messageReaderSheet: $('messageReaderSheet'), messageReaderSheetTitle: $('messageReaderSheetTitle'),
+  messageReaderSheetMeta: $('messageReaderSheetMeta'), messageReaderSheetContent: $('messageReaderSheetContent'),
+  messageReaderBack: $('messageReaderBack'), messageReaderCard: $('messageReaderCard'),
   savedViewsSheet: $('savedViewsSheet'),
   contextViewsBtn: $('contextViewsBtn'), contextViewsLabel: $('contextViewsLabel'),
   savedViewName: $('savedViewName'), savedViewSave: $('savedViewSave'), savedViewsList: $('savedViewsList'),
@@ -1436,12 +1458,18 @@ function updateStatsFromMessages(messages, recipientHint = null) {
   }
 }
 
-async function refreshInbox() {
+async function refreshInbox({ quiet = false } = {}) {
   const recipients = inboxQueryRecipients();
-  if (!recipients.length) return toast('Choose an inbox or enter a custom actor ID');
+  if (!recipients.length) {
+    if (!quiet) toast('Choose an inbox or enter a custom actor ID');
+    return;
+  }
+  const scrollSnap = captureListScroll(e.inboxList);
   busy(e.refreshInbox, true, 'Loading…');
-  const loading = commsListState({ loading: true, surface: 'inbox' });
-  e.inboxList.innerHTML = `<p class="muted">${esc(loading.message)}</p>`;
+  if (!quiet) {
+    const loading = commsListState({ loading: true, surface: 'inbox' });
+    e.inboxList.innerHTML = `<p class="muted">${esc(loading.message)}</p>`;
+  }
   try {
     const results = await Promise.all(recipients.map(async recipient => {
       try {
@@ -1460,11 +1488,12 @@ async function refreshInbox() {
     state.actorNav.inbox = normalizeInboxSelection(state.actorNav.inbox, state.actorNav.directory);
     renderAllActorNavigators();
     renderInbox();
-    toast(`${state.inbox.length} message${state.inbox.length === 1 ? '' : 's'}`);
+    restoreListScroll(e.inboxList, scrollSnap);
+    if (!quiet) toast(`${state.inbox.length} message${state.inbox.length === 1 ? '' : 's'}`);
   } catch (err) {
     const st = commsListState({ error: err, surface: 'inbox' });
     e.inboxList.innerHTML = `<p class="muted">${esc(st.message)}</p>`;
-    toast(err.message);
+    if (!quiet) toast(err.message);
   } finally {
     busy(e.refreshInbox, false, 'Refresh');
   }
@@ -1496,7 +1525,7 @@ function renderInbox() {
     b.type = 'button';
     b.className = 'message-item';
     b.innerHTML = messageRowHtml(row);
-    b.addEventListener('click', () => readMessage(m));
+    b.addEventListener('click', () => readMessage(m, { source: 'inbox' }));
     e.inboxList.append(b);
   };
   if (e.inboxGroupThreads?.checked) {
@@ -1512,18 +1541,117 @@ function renderInbox() {
   }
 }
 
-async function readMessage(m) {
-  e.messageTitle.textContent = 'Loading…';
+function setMessageReaderContent({ title, metaHtml, body }) {
+  if (e.messageTitle) e.messageTitle.textContent = title;
+  if (e.messageMeta) e.messageMeta.innerHTML = metaHtml || '';
+  if (e.messageContent) e.messageContent.textContent = body;
+  if (e.messageReaderSheetTitle) e.messageReaderSheetTitle.textContent = title;
+  if (e.messageReaderSheetMeta) e.messageReaderSheetMeta.innerHTML = metaHtml || '';
+  if (e.messageReaderSheetContent) e.messageReaderSheetContent.textContent = body;
+}
+
+function openMessageReaderFocus({ source = 'inbox', listEl } = {}) {
+  state.messageReader = {
+    source,
+    scrollSnap: captureListScroll(listEl),
+    returnPanel: state.activePanel,
+    historyPushed: false,
+    closingFromPopstate: false
+  };
+  openSheet(MESSAGE_READER_SHEET_ID);
+  if (shouldPushReaderHistory(state.messageReader.historyPushed)) {
+    try {
+      history.pushState({ cairnstoneMessageReader: true }, '');
+      state.messageReader.historyPushed = true;
+    } catch {
+      state.messageReader.historyPushed = false;
+    }
+  }
+  focusReaderTitle(e.messageReaderSheetTitle);
+}
+
+function closeMessageReaderFocus({ fromPopstate = false } = {}) {
+  const reader = state.messageReader || {};
+  const sheetOpen = e.messageReaderSheet && !e.messageReaderSheet.classList.contains('hidden');
+  if (!sheetOpen && !reader.historyPushed) {
+    restoreListScroll(
+      reader.scrollSnap?.listId ? $(reader.scrollSnap.listId) : null,
+      reader.scrollSnap
+    );
+    return;
+  }
+  closeSheet(MESSAGE_READER_SHEET_ID);
+  const listEl = reader.scrollSnap?.listId ? $(reader.scrollSnap.listId) : null;
+  restoreListScroll(listEl, reader.scrollSnap);
+  if (reader.returnPanel && state.activePanel !== reader.returnPanel) {
+    panel(reader.returnPanel);
+  }
+  const pop = shouldPopReaderHistory({
+    historyPushed: reader.historyPushed,
+    fromPopstate
+  });
+  state.messageReader = {
+    source: null,
+    scrollSnap: null,
+    returnPanel: null,
+    historyPushed: false,
+    closingFromPopstate: false
+  };
+  if (pop) {
+    try { history.back(); } catch { /* ignore */ }
+  }
+}
+
+function revealInlineMessageReader() {
+  if (!e.messageReaderCard) return;
+  try {
+    e.messageReaderCard.scrollIntoView({
+      behavior: prefersReducedMotion() ? 'auto' : 'smooth',
+      block: 'start'
+    });
+  } catch {
+    e.messageReaderCard.scrollIntoView(true);
+  }
+  focusReaderTitle(e.messageTitle);
+}
+
+async function readMessage(m, { source = 'inbox' } = {}) {
+  const listEl = source === 'activity' ? e.activityList : e.inboxList;
+  const useFocused = shouldUseFocusedReader();
+  const loading = readerLoadingCopy();
+  setMessageReaderContent({ title: loading.title, metaHtml: '', body: loading.body });
+
+  if (useFocused) {
+    openMessageReaderFocus({ source, listEl });
+  } else {
+    state.messageReader = {
+      source,
+      scrollSnap: captureListScroll(listEl),
+      returnPanel: state.activePanel,
+      historyPushed: false,
+      closingFromPopstate: false
+    };
+    if (shouldNavigateToInboxForRead({ source, useFocusedReader: useFocused })) {
+      panel('inbox');
+    }
+    revealInlineMessageReader();
+  }
+
   const recipient = m.for || m.recipient_id || e.inboxActor.value.trim();
   try {
     const r = await mcpCall('cairnstone_read_message', { recipient_id: recipient, message_id: m.message_id });
-    e.messageTitle.textContent = r.metadata?.subject || m.subject || 'Message';
-    e.messageMeta.innerHTML = [['from', r.metadata?.from || m.sender_id], ['to', recipient], ['intent', r.metadata?.intent || m.intent], ['thread', r.thread_id], ['message_id', m.message_id], ['stone', short(r.stone_hash)], ['scope', r.mutation_scope], ['exec_authority', 'none']].map(([k, v]) => chip(`${k}: ${v || '—'}`)).join('');
-    e.messageContent.textContent = pretty(r.content);
-    await refreshInbox();
+    const title = r.metadata?.subject || m.subject || 'Message';
+    const metaHtml = [['from', r.metadata?.from || m.sender_id], ['to', recipient], ['intent', r.metadata?.intent || m.intent], ['thread', r.thread_id], ['message_id', m.message_id], ['stone', short(r.stone_hash)], ['scope', r.mutation_scope], ['exec_authority', 'none']].map(([k, v]) => chip(`${k}: ${v || '—'}`)).join('');
+    const body = pretty(r.content);
+    setMessageReaderContent({ title, metaHtml, body });
+    focusReaderTitle(useFocused ? e.messageReaderSheetTitle : e.messageTitle);
+    // Refresh listings underneath while preserving scroll (unread badges only).
+    await refreshInbox({ quiet: true });
+    if (source === 'activity') await refreshActivity({ quiet: true });
   } catch (err) {
-    e.messageTitle.textContent = 'Read failed';
-    e.messageContent.textContent = err.message;
+    const fail = readerErrorCopy(err);
+    setMessageReaderContent({ title: fail.title, metaHtml: '', body: fail.body });
+    focusReaderTitle(useFocused ? e.messageReaderSheetTitle : e.messageTitle);
   }
 }
 
@@ -1579,12 +1707,18 @@ async function handoff() {
   }
 }
 
-async function refreshActivity() {
+async function refreshActivity({ quiet = false } = {}) {
   const actors = activityQueryRecipients();
-  if (!actors.length) return toast('Choose actors or enter a custom actor ID');
+  if (!actors.length) {
+    if (!quiet) toast('Choose actors or enter a custom actor ID');
+    return;
+  }
+  const scrollSnap = captureListScroll(e.activityList);
   busy(e.activityRefresh, true, 'Loading…');
-  const loading = commsListState({ loading: true, surface: 'activity' });
-  e.activityList.innerHTML = `<p class="muted">${esc(loading.message)}</p>`;
+  if (!quiet) {
+    const loading = commsListState({ loading: true, surface: 'activity' });
+    e.activityList.innerHTML = `<p class="muted">${esc(loading.message)}</p>`;
+  }
   try {
     const results = await Promise.all(actors.map(async actor => {
       try {
@@ -1607,11 +1741,12 @@ async function refreshActivity() {
     );
     renderAllActorNavigators();
     renderActivity();
-    toast(`${state.activity.length} activity item${state.activity.length === 1 ? '' : 's'} across ${actors.length} mailbox${actors.length === 1 ? '' : 'es'}`);
+    restoreListScroll(e.activityList, scrollSnap);
+    if (!quiet) toast(`${state.activity.length} activity item${state.activity.length === 1 ? '' : 's'} across ${actors.length} mailbox${actors.length === 1 ? '' : 'es'}`);
   } catch (err) {
     const st = commsListState({ error: err, surface: 'activity' });
     e.activityList.innerHTML = `<p class="muted">${esc(st.message)}</p>`;
-    toast(err.message);
+    if (!quiet) toast(err.message);
   } finally {
     busy(e.activityRefresh, false, 'Refresh');
   }
@@ -1655,9 +1790,7 @@ async function readActivityMessage(m) {
     e.inboxActor.value = recipient;
     ingestCustomActorField(recipient, { into: 'inbox' });
   }
-  await readMessage(m);
-  panel('inbox');
-  await refreshActivity();
+  await readMessage(m, { source: 'activity' });
 }
 
 async function refreshStones() {
@@ -2356,7 +2489,7 @@ function closeSheet(id) {
   const el = typeof id === 'string' ? $(id) : id;
   if (!el) return;
   el.classList.add('hidden');
-  const openSheets = [e.scopeSheet, e.runtimeSheet, e.chatConfigSheet, e.evidenceDrawer, e.savedViewsSheet]
+  const openSheets = [e.scopeSheet, e.runtimeSheet, e.chatConfigSheet, e.evidenceDrawer, e.savedViewsSheet, e.messageReaderSheet]
     .some(s => s && !s.classList.contains('hidden'));
   if (!openSheets) document.body.style.overflow = '';
 }
@@ -2560,7 +2693,16 @@ if (e.universeOpenRuntime) e.universeOpenRuntime.addEventListener('click', () =>
 if (e.openChatConfig) e.openChatConfig.addEventListener('click', () => openSheet('chatConfigSheet'));
 if (e.openEvidenceDrawer) e.openEvidenceDrawer.addEventListener('click', openEvidenceDrawerForResult);
 document.querySelectorAll('[data-close-sheet]').forEach(btn => {
-  btn.addEventListener('click', () => closeSheet(btn.getAttribute('data-close-sheet')));
+  btn.addEventListener('click', () => {
+    const id = btn.getAttribute('data-close-sheet');
+    if (id === MESSAGE_READER_SHEET_ID) return closeMessageReaderFocus();
+    closeSheet(id);
+  });
+});
+window.addEventListener('popstate', () => {
+  if (e.messageReaderSheet && !e.messageReaderSheet.classList.contains('hidden')) {
+    closeMessageReaderFocus({ fromPopstate: true });
+  }
 });
 if (e.scopeAdvanced) {
   e.scopeAdvanced.addEventListener('toggle', () => { e.scopeAdvanced.dataset.userTouched = '1'; });
@@ -2644,6 +2786,7 @@ bindUniversePanZoom();
 document.addEventListener('keydown', event => {
   if (event.key !== 'Escape') return;
   if (!e.universeOverlay.classList.contains('hidden')) return closeUniverse();
+  if (e.messageReaderSheet && !e.messageReaderSheet.classList.contains('hidden')) return closeMessageReaderFocus();
   if (e.evidenceDrawer && !e.evidenceDrawer.classList.contains('hidden')) return closeSheet('evidenceDrawer');
   if (e.chatConfigSheet && !e.chatConfigSheet.classList.contains('hidden')) return closeSheet('chatConfigSheet');
   if (e.savedViewsSheet && !e.savedViewsSheet.classList.contains('hidden')) return closeSheet('savedViewsSheet');

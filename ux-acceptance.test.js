@@ -41,6 +41,7 @@ test('legacy capabilities remain reachable via primary or More/Inbox subnav', ()
   assert.ok(REACHABILITY_MAP.some(r => r.sheet === 'scopeSheet'));
   assert.ok(REACHABILITY_MAP.some(r => r.sheet === 'savedViewsSheet'));
   assert.ok(REACHABILITY_MAP.some(r => r.sheet === 'evidenceDrawer'));
+  assert.ok(REACHABILITY_MAP.some(r => r.sheet === 'messageReaderSheet'));
   assert.ok(REACHABILITY_MAP.some(r => r.capability.includes('Authorize')));
 });
 

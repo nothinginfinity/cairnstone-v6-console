@@ -175,7 +175,12 @@
           <label class="check-row"><input id="inboxGroupThreads" type="checkbox"><span>Group by thread</span></label>
           <div id="inboxList" class="message-list" aria-live="polite"><p class="muted">Choose an inbox, then refresh to load correspondence.</p></div>
         </div>
-        <div class="card"><div class="eyebrow">Message reader</div><h2 id="messageTitle">No message selected</h2><div id="messageMeta" class="chips"></div><pre id="messageContent" class="code-block wrap">Select a message to read it. Reading mutates delivery state only; the message stone remains immutable.</pre></div>
+        <div id="messageReaderCard" class="card message-reader-card">
+          <div class="eyebrow">Message reader</div>
+          <h2 id="messageTitle" tabindex="-1">No message selected</h2>
+          <div id="messageMeta" class="chips"></div>
+          <pre id="messageContent" class="code-block wrap">Select a message to read it. Reading mutates delivery state only; the message stone remains immutable.</pre>
+        </div>
       </section>
       <section id="panel-handoff" class="panel">
         <div class="card comms-hub-card">
@@ -634,6 +639,23 @@ grok-bot:cairnstone-v6</textarea></label>
         <div id="evidenceDrawerBody" class="evidence-drawer-body">
           <p class="muted">Ask for a grounded response to inspect citations, claims, authority freshness, and receipt fields bound to that <code>response_id</code>.</p>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="messageReaderSheet" class="sheet hidden" role="dialog" aria-modal="true" aria-labelledby="messageReaderSheetTitle">
+    <div class="sheet-backdrop" data-close-sheet="messageReaderSheet"></div>
+    <div class="sheet-panel message-reader-panel">
+      <header class="sheet-header">
+        <div>
+          <div class="eyebrow">Message reader</div>
+          <h2 id="messageReaderSheetTitle" tabindex="-1">No message selected</h2>
+        </div>
+        <button id="messageReaderBack" class="secondary" type="button" data-close-sheet="messageReaderSheet">Back</button>
+      </header>
+      <div class="sheet-body message-reader-sheet-body">
+        <div id="messageReaderSheetMeta" class="chips"></div>
+        <pre id="messageReaderSheetContent" class="code-block wrap message-reader-body">Select a message to read it. Reading mutates delivery state only; the message stone remains immutable.</pre>
       </div>
     </div>
   </div>

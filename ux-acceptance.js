@@ -19,6 +19,7 @@ export const REACHABILITY_MAP = Object.freeze([
   { capability: 'Work / Code Session', path: 'Primary → Work', panel: 'code', primary: 'work' },
   { capability: 'Universe v2', path: 'Primary → Universe (+ overlay)', panel: 'universe', primary: 'universe', sheet: 'universeOverlay' },
   { capability: 'Inbox', path: 'Primary → Inbox → Inbox', panel: 'inbox', primary: 'inbox' },
+  { capability: 'Message reader (mobile focus)', path: 'Primary → Inbox → message → Message Reader sheet', panel: 'inbox', primary: 'inbox', sheet: 'messageReaderSheet' },
   { capability: 'Handoff', path: 'Primary → Inbox → Handoff', panel: 'handoff', primary: 'inbox' },
   { capability: 'Activity', path: 'Primary → Inbox → Activity', panel: 'activity', primary: 'inbox' },
   { capability: 'Stones', path: 'Primary → More → Stones', panel: 'stones', primary: 'more' },
