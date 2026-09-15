@@ -129,3 +129,61 @@ export function shouldPushReaderHistory(alreadyPushed) {
 export function shouldPopReaderHistory({ historyPushed, fromPopstate } = {}) {
   return Boolean(historyPushed) && !fromPopstate;
 }
+
+/**
+ * Estimate sticky Console chrome height so scroll-into-view is not covered by the context bar.
+ * @param {ParentNode | null | undefined} root
+ */
+export function stickyChromeOffset(root = globalThis.document) {
+  const bar = root?.querySelector?.('.context-bar');
+  if (!bar || typeof bar.getBoundingClientRect !== 'function') return 0;
+  const h = bar.getBoundingClientRect().height;
+  return Number.isFinite(h) ? Math.ceil(h) : 0;
+}
+
+/**
+ * Bring the inline Message Reader into the viewport immediately (desktop path).
+ * Uses instant scroll — smooth animation races quiet list refresh and can leave the reader off-screen.
+ * @param {HTMLElement | null | undefined} el
+ */
+export function scrollReaderIntoView(el, {
+  stickyOffset = 0,
+  scrollToFn = globalThis.scrollTo?.bind(globalThis),
+  getScrollY = () => (typeof globalThis.scrollY === 'number'
+    ? globalThis.scrollY
+    : (globalThis.document?.documentElement?.scrollTop || 0))
+} = {}) {
+  if (!el) return false;
+  try {
+    el.scrollIntoView({ behavior: 'auto', block: 'start' });
+  } catch {
+    try { el.scrollIntoView(true); } catch { return false; }
+  }
+  const pad = Number(stickyOffset) || 0;
+  if (pad > 0 && typeof scrollToFn === 'function' && typeof el.getBoundingClientRect === 'function') {
+    const top = el.getBoundingClientRect().top;
+    if (Number.isFinite(top) && top < pad + 4) {
+      const y = getScrollY() + top - pad - 8;
+      try {
+        scrollToFn({ top: Math.max(0, y), left: 0, behavior: 'auto' });
+      } catch {
+        try { scrollToFn(0, Math.max(0, y)); } catch { /* ignore */ }
+      }
+    }
+  }
+  return true;
+}
+
+/**
+ * True when the reader's top edge is in the visible viewport (below sticky chrome).
+ */
+export function readerIsInView(el, {
+  stickyOffset = 0,
+  viewportHeight = typeof globalThis.innerHeight === 'number' ? globalThis.innerHeight : 800
+} = {}) {
+  if (!el || typeof el.getBoundingClientRect !== 'function') return false;
+  const r = el.getBoundingClientRect();
+  const topMin = (Number(stickyOffset) || 0) + 4;
+  const topMax = Math.max(topMin + 40, (Number(viewportHeight) || 800) * 0.85);
+  return r.top >= topMin - 2 && r.top <= topMax && r.bottom > topMin;
+}
