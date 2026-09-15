@@ -266,6 +266,26 @@ footer{color:#657083;text-align:center;font-size:.68rem;padding:16px 0 0}
 }
 #chatConfigSheet .scope-caveat{margin-top:0}
 
+/* V7.7.10b Give Access / Assign / Forward */
+.share-actions{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 12px}
+.share-actions .secondary,.share-actions .primary{width:auto;flex:0 0 auto;min-height:40px}
+.stone-share-actions{margin-top:12px}
+.share-sheet-panel{width:min(720px,100%)}
+.share-mode-tabs{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 14px}
+.share-mode-tab.active{border-color:var(--accent);color:var(--accent);background:rgba(128,233,193,.1)}
+.share-object-block{margin:0 0 14px;padding:12px;border:1px solid var(--line);border-radius:14px;background:var(--surface2)}
+.share-object-block strong{display:block;margin:4px 0 8px;font-size:.95rem}
+.share-proposal-card{margin:12px 0;padding:12px;border:1px dashed rgba(128,233,193,.35);border-radius:14px;background:rgba(128,233,193,.05)}
+.share-proposal-lines{margin:8px 0 0;padding-left:1.1rem;line-height:1.45}
+.share-commit-row{margin:12px 0;padding:10px 12px;border:1px solid rgba(255,180,120,.35);border-radius:12px;background:rgba(255,180,120,.06)}
+.access-grant-row .share-actions{margin-bottom:0}
+.access-grants-card .scope-caveat{margin-bottom:12px}
+@media(prefers-reduced-motion:no-preference){
+  .share-mode-tab{transition:border-color .15s ease,background .15s ease,color .15s ease}
+  .share-proposal-card{transition:border-color .2s ease,background .2s ease}
+  .share-actions .secondary:not(:disabled):hover{transform:translateY(-1px)}
+}
+
 /* V7.7.9e Progressive disclosure + Saved Views */
 .progressive-honesty{margin:0 0 12px;line-height:1.45}
 .progressive-step{margin:0 0 14px}

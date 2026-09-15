@@ -104,6 +104,24 @@ import {
   shouldUseFocusedReader,
   stickyChromeOffset
 } from './message-reader-focus.js';
+import {
+  ACCESS_GRANT_TOOLS,
+  buildAccessGrantProposal,
+  buildAssignProposal,
+  buildForwardWithNotePayload,
+  buildRevokeProposal,
+  grantStatusLabel,
+  isToolMissingError,
+  localResolveAttachment,
+  objectRefFromCodeSession,
+  objectRefFromMessage,
+  objectRefFromResponse,
+  objectRefFromStone,
+  permissionLabel,
+  shareModeLabel,
+  summarizeProposalCard,
+  toolMissingHonesty
+} from './access-share.js';
 
 const DEFAULT_RUNTIME = 'https://cairnstone-v6.jaredtechfit.workers.dev/mcp';
 const DEFAULT_CHAIN = 'cairnstone-v6-project-memory';
@@ -157,6 +175,17 @@ const state = {
     returnPanel: null,
     historyPushed: false,
     closingFromPopstate: false
+  },
+  share: {
+    mode: 'give-access',
+    source: null,
+    object: null,
+    principalKey: '',
+    customPrincipal: '',
+    lastMessage: null,
+    grants: [],
+    proposal: null,
+    toolAvailability: null
   }
 };
 
@@ -169,6 +198,7 @@ const PRIMARY_BY_PANEL = {
   activity: 'inbox',
   stones: 'more',
   evidence: 'more',
+  access: 'more',
   authorize: 'more',
   invite: 'more',
   settings: 'more'
@@ -189,6 +219,19 @@ const e = {
   inboxSubnav: $('inboxSubnav'), moreSubnav: $('moreSubnav'),
   inboxGroupThreads: $('inboxGroupThreads'),
   scopeSheet: $('scopeSheet'), runtimeSheet: $('runtimeSheet'), chatConfigSheet: $('chatConfigSheet'), evidenceDrawer: $('evidenceDrawer'),
+  shareSheet: $('shareSheet'), shareSheetTitle: $('shareSheetTitle'), shareSheetBlurb: $('shareSheetBlurb'),
+  shareObjectRef: $('shareObjectRef'), shareObjectMeta: $('shareObjectMeta'), shareResolveNote: $('shareResolveNote'),
+  shareActorPicker: $('shareActorPicker'), shareActorMeta: $('shareActorMeta'), shareActorNavLabel: $('shareActorNavLabel'),
+  sharePrincipal: $('sharePrincipal'), sharePermission: $('sharePermission'), shareNotify: $('shareNotify'),
+  shareGiveFields: $('shareGiveFields'), shareAssignFields: $('shareAssignFields'), shareForwardFields: $('shareForwardFields'),
+  shareAssignTask: $('shareAssignTask'), shareForwardNote: $('shareForwardNote'), shareForwardSubject: $('shareForwardSubject'),
+  shareProposalTitle: $('shareProposalTitle'), shareProposalLines: $('shareProposalLines'),
+  shareHumanCommit: $('shareHumanCommit'), shareCommitButton: $('shareCommitButton'), shareResult: $('shareResult'),
+  messageShareActions: $('messageShareActions'), messageReaderSheetShareActions: $('messageReaderSheetShareActions'),
+  evidenceShareActions: $('evidenceShareActions'), evidenceDrawerShareActions: $('evidenceDrawerShareActions'),
+  stoneGiveAccess: $('stoneGiveAccess'), stoneAssign: $('stoneAssign'), stoneForward: $('stoneForward'),
+  accessGrantsRefresh: $('accessGrantsRefresh'), accessGrantsObjectRef: $('accessGrantsObjectRef'),
+  accessGrantsHonesty: $('accessGrantsHonesty'), accessGrantsList: $('accessGrantsList'),
   messageReaderSheet: $('messageReaderSheet'), messageReaderSheetTitle: $('messageReaderSheetTitle'),
   messageReaderSheetMeta: $('messageReaderSheetMeta'), messageReaderSheetContent: $('messageReaderSheetContent'),
   messageReaderBack: $('messageReaderBack'), messageReaderCard: $('messageReaderCard'),
@@ -369,6 +412,7 @@ async function health() {
   setHealth('checking');
   try {
     const r = await mcpCall('cairnstone_health', {});
+    state.share.toolAvailability = Array.isArray(r.mcp_tools) ? r.mcp_tools : null;
     setHealth('ok', `${r.version || 'live'} · ${r.mcp_tools?.length || 0} tools`);
     return r;
   } catch (err) {
@@ -376,6 +420,12 @@ async function health() {
     toast(err.message);
     throw err;
   }
+}
+
+function workerHasTool(name) {
+  const tools = state.share.toolAvailability;
+  if (!Array.isArray(tools)) return null;
+  return tools.includes(name);
 }
 
 function setHealth(status, text = 'Checking…') {
@@ -932,6 +982,7 @@ function renderEvidenceDrawerBody(r = state.lastResult) {
 function openEvidenceDrawerForResult() {
   if (!canOpenEvidenceDrawer(state.lastResult)) return toast('Ask for a grounded answer first');
   renderEvidenceDrawerBody(state.lastResult);
+  if (e.evidenceDrawerShareActions) e.evidenceDrawerShareActions.hidden = !objectRefFromResponse(state.lastResult);
   openSheet('evidenceDrawer');
 }
 
@@ -1137,6 +1188,7 @@ function renderEvidence(r) {
     if (e.observability) e.observability.textContent = '{}';
   }
   e.copyEvidence.disabled = !r && !state.scopeSnapshot;
+  if (e.evidenceShareActions) e.evidenceShareActions.hidden = !objectRefFromResponse(r || state.lastResult);
 }
 
 function evidenceCell([label, value]) {
@@ -1427,6 +1479,8 @@ function renderAllActorNavigators() {
       ? `Will send to ${recipients.join(', ')}`
       : 'Select at least one recipient.';
   }
+
+  renderShareActorPicker();
 }
 
 function inboxQueryRecipients() {
@@ -1641,7 +1695,15 @@ async function readMessage(m, { source = 'inbox' } = {}) {
     const title = r.metadata?.subject || m.subject || 'Message';
     const metaHtml = [['from', r.metadata?.from || m.sender_id], ['to', recipient], ['intent', r.metadata?.intent || m.intent], ['thread', r.thread_id], ['message_id', m.message_id], ['stone', short(r.stone_hash)], ['scope', r.mutation_scope], ['exec_authority', 'none']].map(([k, v]) => chip(`${k}: ${v || '—'}`)).join('');
     const body = pretty(r.content);
+    state.share.lastMessage = {
+      ...m,
+      message_id: m.message_id,
+      stone_hash: r.stone_hash || m.stone_hash,
+      subject: title,
+      recipient_id: recipient
+    };
     setMessageReaderContent({ title, metaHtml, body });
+    setShareActionVisibility(true);
     // Quiet list refresh can restore prior windowY; re-reveal after so desktop never strands the reader.
     await refreshInbox({ quiet: true });
     if (source === 'activity') await refreshActivity({ quiet: true });
@@ -1650,6 +1712,7 @@ async function readMessage(m, { source = 'inbox' } = {}) {
   } catch (err) {
     const fail = readerErrorCopy(err);
     setMessageReaderContent({ title: fail.title, metaHtml: '', body: fail.body });
+    setShareActionVisibility(Boolean(state.share.lastMessage));
     if (useFocused) focusReaderTitle(e.messageReaderSheetTitle);
     else revealInlineMessageReader();
   }
@@ -1917,6 +1980,7 @@ function selectStone(s) {
   }
   if (e.stonesDetailBlock) e.stonesDetailBlock.open = true;
   e.copyStoneHash.disabled = !hash;
+  setShareActionVisibility(Boolean(hash));
 }
 
 function primaryRepoGroups() {
@@ -2425,6 +2489,331 @@ function toast(message) {
   e.toast.classList.add('show');
   toastTimer = setTimeout(() => e.toast.classList.remove('show'), 2400);
 }
+
+/* —— V7.7.10b Give Access / Assign / Forward (presentation) —— */
+
+function currentSharePrincipalId() {
+  const custom = (e.sharePrincipal?.value || state.share.customPrincipal || '').trim();
+  if (custom) return custom;
+  const actor = actorByKey(state.share.principalKey);
+  const ids = defaultHandoffRecipients(actor);
+  return ids[0] || '';
+}
+
+function renderShareActorPicker() {
+  if (e.shareActorNavLabel) e.shareActorNavLabel.textContent = 'Choose principal';
+  renderActorPicker(e.shareActorPicker, {
+    mode: 'single',
+    selectedKeys: state.share.principalKey ? [state.share.principalKey] : [],
+    onSelect: (key) => {
+      state.share.principalKey = key;
+      state.share.customPrincipal = '';
+      const actor = actorByKey(key);
+      const ids = defaultHandoffRecipients(actor);
+      if (e.sharePrincipal) e.sharePrincipal.value = ids[0] || '';
+      if (e.shareActorMeta) {
+        e.shareActorMeta.textContent = ids.length
+          ? `${actor?.display || key} → ${ids.join(', ')}`
+          : 'No work mailbox for this actor';
+      }
+      refreshShareProposal();
+    }
+  });
+  if (e.shareActorMeta && state.share.principalKey) {
+    const actor = actorByKey(state.share.principalKey);
+    const ids = defaultHandoffRecipients(actor);
+    e.shareActorMeta.textContent = ids.length
+      ? `${actor?.display || state.share.principalKey} → ${ids.join(', ')}`
+      : 'No work mailbox for this actor';
+  }
+}
+
+function setShareModeUi(mode) {
+  const m = mode || 'give-access';
+  state.share.mode = m;
+  if (e.shareSheetTitle) e.shareSheetTitle.textContent = shareModeLabel(m);
+  document.querySelectorAll('.share-mode-tab').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.shareTab === m);
+  });
+  if (e.shareGiveFields) e.shareGiveFields.classList.toggle('hidden', m !== 'give-access');
+  if (e.shareAssignFields) e.shareAssignFields.classList.toggle('hidden', m !== 'assign');
+  if (e.shareForwardFields) e.shareForwardFields.classList.toggle('hidden', m !== 'forward');
+  refreshShareProposal();
+}
+
+function buildCurrentShareProposal() {
+  const objectRef = state.share.object?.object_ref;
+  const principal = currentSharePrincipalId();
+  const grantor = (e.actorId?.value || '').trim() || 'console:jared';
+  const mode = state.share.mode;
+  if (mode === 'give-access') {
+    return buildAccessGrantProposal({
+      object_ref: objectRef,
+      principal_actor_id: principal,
+      permission: e.sharePermission?.value || 'read',
+      grantor_actor_id: grantor,
+      notify: Boolean(e.shareNotify?.checked)
+    });
+  }
+  if (mode === 'assign') {
+    const refs = [objectRef, ...(state.share.object?.secondary_refs || [])].filter(Boolean);
+    return buildAssignProposal({
+      object_refs: refs,
+      assignee_actor_id: principal,
+      requester_actor_id: grantor,
+      task: e.shareAssignTask?.value || ''
+    });
+  }
+  return buildForwardWithNotePayload({
+    from: grantor,
+    to: [principal].filter(Boolean),
+    note: e.shareForwardNote?.value || '',
+    original_object_ref: objectRef,
+    subject: e.shareForwardSubject?.value || 'Forward with note'
+  });
+}
+
+function refreshShareProposal() {
+  const proposal = buildCurrentShareProposal();
+  state.share.proposal = proposal;
+  const card = summarizeProposalCard(proposal);
+  if (e.shareProposalTitle) e.shareProposalTitle.textContent = card.title;
+  if (e.shareProposalLines) {
+    e.shareProposalLines.innerHTML = card.lines.map(line => `<li>${esc(line)}</li>`).join('');
+  }
+  const committed = Boolean(e.shareHumanCommit?.checked);
+  if (e.shareCommitButton) e.shareCommitButton.disabled = !(proposal.ok && committed);
+  if (e.sharePermission && state.share.mode === 'give-access') {
+    const perm = e.sharePermission.value;
+    if (e.shareSheetBlurb) {
+      e.shareSheetBlurb.textContent = `${permissionLabel(perm)} Human Commit required. Does not duplicate the canonical payload. Presentation never moves HEADs.`;
+    }
+  }
+}
+
+function setShareActionVisibility(hasObject) {
+  const show = Boolean(hasObject);
+  [e.messageShareActions, e.messageReaderSheetShareActions, e.evidenceShareActions, e.evidenceDrawerShareActions]
+    .forEach(el => { if (el) el.hidden = !show; });
+  [e.stoneGiveAccess, e.stoneAssign, e.stoneForward].forEach(btn => {
+    if (btn) btn.disabled = !show;
+  });
+}
+
+async function hydrateShareObjectResolve(objectRef) {
+  const local = localResolveAttachment(objectRef);
+  if (e.shareResolveNote) {
+    e.shareResolveNote.textContent = local.ok
+      ? local.note
+      : (local.message || 'Unrecognized object ref');
+  }
+  try {
+    const r = await mcpCall(ACCESS_GRANT_TOOLS.attachmentResolve, { object_ref: objectRef });
+    if (e.shareResolveNote) {
+      e.shareResolveNote.textContent = r?.summary || r?.note || 'Resolved via cairnstone_attachment_resolve';
+    }
+    return r;
+  } catch (err) {
+    if (isToolMissingError(err)) {
+      const honesty = toolMissingHonesty(ACCESS_GRANT_TOOLS.attachmentResolve);
+      if (e.shareResolveNote) e.shareResolveNote.textContent = honesty.body;
+      return { ...local, worker_available: false };
+    }
+    if (e.shareResolveNote) e.shareResolveNote.textContent = `Resolve failed: ${err.message}`;
+    return local;
+  }
+}
+
+async function openShareSheet({ mode = 'give-access', source = null, object = null } = {}) {
+  if (!object?.object_ref) {
+    toast('Select a message, stone, response, or Code Session first');
+    return;
+  }
+  state.share.source = source;
+  state.share.object = object;
+  if (!state.share.principalKey) {
+    state.share.principalKey = state.actorNav.handoffKeys[0] || state.actorNav.inbox.actorKey || 'claude';
+  }
+  const actor = actorByKey(state.share.principalKey);
+  const ids = defaultHandoffRecipients(actor);
+  if (e.sharePrincipal && !e.sharePrincipal.value) e.sharePrincipal.value = ids[0] || '';
+  if (e.shareObjectRef) e.shareObjectRef.textContent = object.object_ref;
+  if (e.shareObjectMeta) {
+    const chips = [
+      chip(`kind: ${object.kind || '—'}`),
+      chip(`source: ${object.source || source || '—'}`),
+      ...(object.secondary_refs || []).map(r => chip(r))
+    ];
+    e.shareObjectMeta.innerHTML = chips.join('');
+  }
+  if (e.shareHumanCommit) e.shareHumanCommit.checked = false;
+  if (e.shareResult) e.shareResult.textContent = 'No share action committed yet.';
+  setShareModeUi(mode);
+  renderShareActorPicker();
+  openSheet('shareSheet');
+  hydrateShareObjectResolve(object.object_ref).catch(() => {});
+}
+
+function shareObjectFromSource(source) {
+  if (source === 'message-reader' || source === 'inbox') {
+    return state.share.lastMessage ? objectRefFromMessage(state.share.lastMessage) : null;
+  }
+  if (source === 'stones') return state.selectedStone ? objectRefFromStone(state.selectedStone) : null;
+  if (source === 'evidence') return state.lastResult ? objectRefFromResponse(state.lastResult) : null;
+  if (source === 'work') {
+    const sid = currentCodeSessionId();
+    return sid ? objectRefFromCodeSession(sid) : null;
+  }
+  return state.share.object;
+}
+
+async function commitShareAction() {
+  const proposal = buildCurrentShareProposal();
+  state.share.proposal = proposal;
+  refreshShareProposal();
+  if (!proposal.ok) {
+    toast(proposal.errors[0] || 'Incomplete proposal');
+    return;
+  }
+  if (!e.shareHumanCommit?.checked) {
+    toast('Human Commit required');
+    return;
+  }
+  busy(e.shareCommitButton, true, 'Committing…');
+  try {
+    const known = workerHasTool(proposal.mcp_tool);
+    if (known === false) {
+      const honesty = toolMissingHonesty(proposal.mcp_tool);
+      const payload = {
+        ok: false,
+        ...honesty,
+        proposal: {
+          operation: proposal.operation,
+          args: proposal.args,
+          human_commit_required: true,
+          human_commit_recorded: true,
+          note: 'Human Commit checked in Console; worker catalog does not include this tool yet.'
+        }
+      };
+      if (e.shareResult) e.shareResult.textContent = JSON.stringify(payload, null, 2);
+      toast(honesty.title);
+      return;
+    }
+    const r = await mcpCall(proposal.mcp_tool, proposal.args);
+    if (e.shareResult) e.shareResult.textContent = JSON.stringify(r, null, 2);
+    toast(proposal.operation === 'forward-with-note' ? 'Forwarded with note' : 'Committed');
+    if (proposal.operation === 'grant' && e.accessGrantsObjectRef && state.share.object?.object_ref) {
+      e.accessGrantsObjectRef.value = state.share.object.object_ref;
+    }
+  } catch (err) {
+    if (isToolMissingError(err)) {
+      const honesty = toolMissingHonesty(proposal.mcp_tool);
+      const payload = {
+        ok: false,
+        ...honesty,
+        proposal: {
+          operation: proposal.operation,
+          args: proposal.args,
+          human_commit_required: true,
+          note: 'Commit acknowledged in Console; worker tool not available yet.'
+        },
+        error: err.message,
+        error_payload: err.payload || null
+      };
+      if (e.shareResult) e.shareResult.textContent = JSON.stringify(payload, null, 2);
+      toast(honesty.title);
+    } else {
+      if (e.shareResult) e.shareResult.textContent = JSON.stringify(err.payload || { error: err.message }, null, 2);
+      toast(err.message);
+    }
+  } finally {
+    busy(e.shareCommitButton, false, 'Commit');
+    refreshShareProposal();
+  }
+}
+
+async function refreshAccessGrants() {
+  const objectRef = (e.accessGrantsObjectRef?.value || '').trim() || undefined;
+  const actor_id = (e.actorId?.value || '').trim() || 'console:jared';
+  if (e.accessGrantsHonesty) e.accessGrantsHonesty.textContent = 'Loading grants…';
+  busy(e.accessGrantsRefresh, true, 'Loading…');
+  try {
+    const r = await mcpCall(ACCESS_GRANT_TOOLS.list, {
+      actor_id,
+      object_ref: objectRef,
+      limit: 50
+    });
+    state.share.grants = r.grants || r.items || [];
+    renderAccessGrants();
+    if (e.accessGrantsHonesty) {
+      e.accessGrantsHonesty.textContent = `${state.share.grants.length} grant${state.share.grants.length === 1 ? '' : 's'} · lifecycle granted → first_read → revoked (future access only)`;
+    }
+  } catch (err) {
+    if (isToolMissingError(err)) {
+      const honesty = toolMissingHonesty(ACCESS_GRANT_TOOLS.list);
+      state.share.grants = [];
+      if (e.accessGrantsList) {
+        e.accessGrantsList.innerHTML = `<p class="muted"><strong>${esc(honesty.title)}</strong><br>${esc(honesty.body)}</p>`;
+      }
+      if (e.accessGrantsHonesty) e.accessGrantsHonesty.textContent = honesty.body;
+    } else {
+      if (e.accessGrantsList) e.accessGrantsList.innerHTML = `<p class="muted">${esc(err.message)}</p>`;
+      if (e.accessGrantsHonesty) e.accessGrantsHonesty.textContent = err.message;
+      toast(err.message);
+    }
+  } finally {
+    busy(e.accessGrantsRefresh, false, 'Refresh');
+  }
+}
+
+function renderAccessGrants() {
+  if (!e.accessGrantsList) return;
+  const rows = state.share.grants || [];
+  if (!rows.length) {
+    e.accessGrantsList.innerHTML = '<p class="muted">No grants returned.</p>';
+    return;
+  }
+  e.accessGrantsList.innerHTML = '';
+  for (const g of rows) {
+    const b = document.createElement('div');
+    b.className = 'message-item access-grant-row';
+    const status = grantStatusLabel(g.status || g.lifecycle || 'granted');
+    b.innerHTML = `<strong>${esc(g.object_ref || '—')}</strong>
+      <div class="meta">${esc(g.principal_actor_id || '—')} · ${esc(g.permission || '—')} · ${esc(status)}</div>
+      <div class="meta">${esc(g.grant_id || '')}${g.first_read_at ? ` · first_read ${esc(g.first_read_at)}` : ''}${g.revoked_at ? ` · revoked ${esc(g.revoked_at)}` : ''}</div>
+      <div class="share-actions">
+        <button type="button" class="secondary" data-revoke-grant="${esc(g.grant_id || '')}" ${g.status === 'revoked' || !g.grant_id ? 'disabled' : ''}>Revoke…</button>
+      </div>`;
+    e.accessGrantsList.append(b);
+  }
+  e.accessGrantsList.querySelectorAll('[data-revoke-grant]').forEach(btn => {
+    btn.addEventListener('click', () => revokeGrantWithCommit(btn.getAttribute('data-revoke-grant')));
+  });
+}
+
+async function revokeGrantWithCommit(grantId) {
+  const proposal = buildRevokeProposal({
+    grant_id: grantId,
+    actor_id: (e.actorId?.value || '').trim() || 'console:jared'
+  });
+  if (!proposal.ok) return toast(proposal.errors[0] || 'Cannot revoke');
+  const ok = globalThis.confirm?.(
+    `${proposal.summary}\n\nHuman Commit required. Revoke blocks future access only — it does not erase data already read.`
+  );
+  if (!ok) return;
+  try {
+    const r = await mcpCall(proposal.mcp_tool, proposal.args);
+    toast('Grant revoked (future access only)');
+    await refreshAccessGrants();
+    if (e.shareResult) e.shareResult.textContent = JSON.stringify(r, null, 2);
+  } catch (err) {
+    if (isToolMissingError(err)) {
+      toast(toolMissingHonesty(ACCESS_GRANT_TOOLS.revoke).title);
+      if (e.accessGrantsHonesty) e.accessGrantsHonesty.textContent = toolMissingHonesty(ACCESS_GRANT_TOOLS.revoke).body;
+    } else toast(err.message);
+  }
+}
+
 function panel(name) {
   const panelName = name === 'work' ? 'code' : name;
   const primary = PRIMARY_BY_PANEL[panelName] || 'chat';
@@ -2448,6 +2837,11 @@ function panel(name) {
   if (primary === 'inbox') syncCommsHub(panelName);
   if (panelName === 'authorize') syncAuthorizeDisclosure();
   if (panelName === 'evidence') renderEvidence(state.lastResult);
+  if (panelName === 'access') {
+    if (e.accessGrantsHonesty && !state.share.grants.length) {
+      e.accessGrantsHonesty.textContent = 'Refresh to list grants when cairnstone_access_grant_list is available (worker 0.5.40+).';
+    }
+  }
   syncSavedViewsContextLabel();
 }
 
@@ -2489,7 +2883,7 @@ function closeSheet(id) {
   const el = typeof id === 'string' ? $(id) : id;
   if (!el) return;
   el.classList.add('hidden');
-  const openSheets = [e.scopeSheet, e.runtimeSheet, e.chatConfigSheet, e.evidenceDrawer, e.savedViewsSheet, e.messageReaderSheet]
+  const openSheets = [e.scopeSheet, e.runtimeSheet, e.chatConfigSheet, e.evidenceDrawer, e.savedViewsSheet, e.messageReaderSheet, e.shareSheet]
     .some(s => s && !s.classList.contains('hidden'));
   if (!openSheets) document.body.style.overflow = '';
 }
@@ -2759,6 +3153,40 @@ e.operatorToken.addEventListener('input', () => {
   const v = e.operatorToken.value.trim();
   if (v) sessionStorage.setItem('cs.operatorToken', v); else sessionStorage.removeItem('cs.operatorToken');
 });
+
+document.querySelectorAll('[data-share-mode]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const mode = btn.getAttribute('data-share-mode') || 'give-access';
+    const source = btn.getAttribute('data-share-source') || 'message-reader';
+    const object = shareObjectFromSource(source);
+    openShareSheet({ mode, source, object });
+  });
+});
+document.querySelectorAll('.share-mode-tab').forEach(btn => {
+  btn.addEventListener('click', () => setShareModeUi(btn.getAttribute('data-share-tab') || 'give-access'));
+});
+if (e.shareHumanCommit) e.shareHumanCommit.addEventListener('change', refreshShareProposal);
+if (e.sharePermission) e.sharePermission.addEventListener('change', refreshShareProposal);
+if (e.shareNotify) e.shareNotify.addEventListener('change', refreshShareProposal);
+if (e.shareAssignTask) e.shareAssignTask.addEventListener('input', refreshShareProposal);
+if (e.shareForwardNote) e.shareForwardNote.addEventListener('input', refreshShareProposal);
+if (e.shareForwardSubject) e.shareForwardSubject.addEventListener('input', refreshShareProposal);
+if (e.sharePrincipal) {
+  e.sharePrincipal.addEventListener('change', () => {
+    state.share.customPrincipal = e.sharePrincipal.value.trim();
+    ingestCustomActorField(e.sharePrincipal.value, { into: 'observed' });
+    const parsed = parseMailboxId(e.sharePrincipal.value);
+    if (parsed?.namespace) state.share.principalKey = parsed.namespace.toLowerCase();
+    renderShareActorPicker();
+    refreshShareProposal();
+  });
+  e.sharePrincipal.addEventListener('input', refreshShareProposal);
+}
+if (e.shareCommitButton) e.shareCommitButton.addEventListener('click', () => commitShareAction());
+if (e.accessGrantsRefresh) e.accessGrantsRefresh.addEventListener('click', () => refreshAccessGrants());
+if (e.codeGiveAccess || $('codeGiveAccess')) {
+  /* Work buttons use data-share-mode handlers above once enabled by code-session.js */
+}
 
 e.scopeSearch.addEventListener('input', renderScopeCatalog);
 e.scopeAll.addEventListener('click', () => setScope({ mode: 'vault', max_chains: 200 }, 'All CairnStone'));
