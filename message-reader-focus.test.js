@@ -26,6 +26,8 @@ test('focused reader uses mobile breakpoint matching shell CSS', () => {
   assert.equal(shouldUseFocusedReader(859), true);
   assert.equal(shouldUseFocusedReader(860), false);
   assert.equal(shouldUseFocusedReader(1280), false);
+  assert.equal(shouldUseFocusedReader({ matches: true }), true);
+  assert.equal(shouldUseFocusedReader({ matches: false }), false);
 });
 
 test('list scroll capture/restore round-trips', () => {

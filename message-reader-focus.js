@@ -4,13 +4,39 @@
  * Does not mutate AC1 message stones or chain/path HEADs.
  */
 
-/** Matches styles.css shell breakpoint (min-width: 860px = desktop). */
+/**
+ * Matches styles.css shell breakpoint (min-width: 860px = desktop).
+ * Prefer matchMedia so JS and CSS stay aligned under device emulation.
+ */
 export const MESSAGE_READER_BREAKPOINT = 860;
 
 export const MESSAGE_READER_SHEET_ID = 'messageReaderSheet';
 
-export function shouldUseFocusedReader(width = globalThis.innerWidth) {
-  const w = Number(width);
+export const MESSAGE_READER_MEDIA_QUERY = `(max-width: ${MESSAGE_READER_BREAKPOINT - 1}px)`;
+
+/**
+ * @param {number | { matches?: boolean } | null | undefined} widthOrMedia
+ *   - number: treat as viewport width in px (tests / explicit)
+ *   - MediaQueryList-like: use .matches
+ *   - omitted: use matchMedia(MESSAGE_READER_MEDIA_QUERY) or innerWidth fallback
+ */
+export function shouldUseFocusedReader(widthOrMedia = undefined) {
+  if (typeof widthOrMedia === 'number') {
+    const w = Number(widthOrMedia);
+    if (!Number.isFinite(w)) return true;
+    return w < MESSAGE_READER_BREAKPOINT;
+  }
+  if (widthOrMedia && typeof widthOrMedia === 'object' && 'matches' in widthOrMedia) {
+    return Boolean(widthOrMedia.matches);
+  }
+  if (typeof globalThis.matchMedia === 'function') {
+    try {
+      return Boolean(globalThis.matchMedia(MESSAGE_READER_MEDIA_QUERY).matches);
+    } catch {
+      /* fall through */
+    }
+  }
+  const w = Number(globalThis.innerWidth);
   if (!Number.isFinite(w)) return true;
   return w < MESSAGE_READER_BREAKPOINT;
 }
