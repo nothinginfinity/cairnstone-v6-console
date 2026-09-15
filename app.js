@@ -108,16 +108,19 @@ import {
   ACCESS_GRANT_TOOLS,
   buildAccessGrantProposal,
   buildAssignProposal,
+  buildAttachmentResolveArgs,
   buildForwardWithNotePayload,
   buildRevokeProposal,
   grantStatusLabel,
   isToolMissingError,
   localResolveAttachment,
+  mcpArgsFromProposal,
   objectRefFromCodeSession,
   objectRefFromMessage,
   objectRefFromResponse,
   objectRefFromStone,
   permissionLabel,
+  sanitizeMcpArgs,
   shareModeLabel,
   summarizeProposalCard,
   toolMissingHonesty
@@ -2569,7 +2572,9 @@ function buildCurrentShareProposal() {
     to: [principal].filter(Boolean),
     note: e.shareForwardNote?.value || '',
     original_object_ref: objectRef,
-    subject: e.shareForwardSubject?.value || 'Forward with note'
+    subject: e.shareForwardSubject?.value || 'Forward with note',
+    preferForwardTool: true,
+    forwardToolAvailable: workerHasTool(ACCESS_GRANT_TOOLS.forwardWithNote)
   });
 }
 
@@ -2607,10 +2612,18 @@ async function hydrateShareObjectResolve(objectRef) {
       ? local.note
       : (local.message || 'Unrecognized object ref');
   }
+  const actor_id = (e.actorId?.value || '').trim() || undefined;
+  const resolveArgs = buildAttachmentResolveArgs({ object_ref: objectRef, actor_id });
   try {
-    const r = await mcpCall(ACCESS_GRANT_TOOLS.attachmentResolve, { object_ref: objectRef });
+    const known = workerHasTool(ACCESS_GRANT_TOOLS.attachmentResolve);
+    if (known === false) {
+      const honesty = toolMissingHonesty(ACCESS_GRANT_TOOLS.attachmentResolve);
+      if (e.shareResolveNote) e.shareResolveNote.textContent = honesty.body;
+      return { ...local, worker_available: false };
+    }
+    const r = await mcpCall(ACCESS_GRANT_TOOLS.attachmentResolve, resolveArgs);
     if (e.shareResolveNote) {
-      e.shareResolveNote.textContent = r?.summary || r?.note || 'Resolved via cairnstone_attachment_resolve';
+      e.shareResolveNote.textContent = r?.summary || r?.note || 'Resolved via cairnstone_attachment_ref_resolve';
     }
     return r;
   } catch (err) {
@@ -2681,15 +2694,37 @@ async function commitShareAction() {
   }
   busy(e.shareCommitButton, true, 'Committing…');
   try {
-    const known = workerHasTool(proposal.mcp_tool);
+    let tool = proposal.mcp_tool;
+    let args = mcpArgsFromProposal(proposal);
+
+    // Forward: prefer forward_with_note; fall back to send_message if catalog lacks it.
+    if (proposal.operation === 'forward-with-note') {
+      const hasForward = workerHasTool(ACCESS_GRANT_TOOLS.forwardWithNote);
+      if (hasForward === false) {
+        const fallback = buildForwardWithNotePayload({
+          from: proposal.mcpArgs?.from || (e.actorId?.value || '').trim(),
+          to: proposal.mcpArgs?.to,
+          note: proposal.mcpArgs?.note || e.shareForwardNote?.value || '',
+          original_object_ref: proposal.mcpArgs?.object_ref || state.share.object?.object_ref,
+          subject: proposal.mcpArgs?.subject || e.shareForwardSubject?.value || 'Forward with note',
+          preferForwardTool: false,
+          forwardToolAvailable: false
+        });
+        tool = fallback.mcp_tool;
+        args = mcpArgsFromProposal(fallback);
+      }
+    }
+
+    const known = workerHasTool(tool);
     if (known === false) {
-      const honesty = toolMissingHonesty(proposal.mcp_tool);
+      const honesty = toolMissingHonesty(tool);
       const payload = {
         ok: false,
         ...honesty,
         proposal: {
           operation: proposal.operation,
-          args: proposal.args,
+          mcp_tool: tool,
+          args,
           human_commit_required: true,
           human_commit_recorded: true,
           note: 'Human Commit checked in Console; worker catalog does not include this tool yet.'
@@ -2699,7 +2734,7 @@ async function commitShareAction() {
       toast(honesty.title);
       return;
     }
-    const r = await mcpCall(proposal.mcp_tool, proposal.args);
+    const r = await mcpCall(tool, args);
     if (e.shareResult) e.shareResult.textContent = JSON.stringify(r, null, 2);
     toast(proposal.operation === 'forward-with-note' ? 'Forwarded with note' : 'Committed');
     if (proposal.operation === 'grant' && e.accessGrantsObjectRef && state.share.object?.object_ref) {
@@ -2713,7 +2748,8 @@ async function commitShareAction() {
         ...honesty,
         proposal: {
           operation: proposal.operation,
-          args: proposal.args,
+          mcp_tool: proposal.mcp_tool,
+          args: mcpArgsFromProposal(proposal),
           human_commit_required: true,
           note: 'Commit acknowledged in Console; worker tool not available yet.'
         },
@@ -2738,11 +2774,11 @@ async function refreshAccessGrants() {
   if (e.accessGrantsHonesty) e.accessGrantsHonesty.textContent = 'Loading grants…';
   busy(e.accessGrantsRefresh, true, 'Loading…');
   try {
-    const r = await mcpCall(ACCESS_GRANT_TOOLS.list, {
+    const r = await mcpCall(ACCESS_GRANT_TOOLS.list, sanitizeMcpArgs(ACCESS_GRANT_TOOLS.list, {
       actor_id,
       object_ref: objectRef,
       limit: 50
-    });
+    }));
     state.share.grants = r.grants || r.items || [];
     renderAccessGrants();
     if (e.accessGrantsHonesty) {
@@ -2802,7 +2838,7 @@ async function revokeGrantWithCommit(grantId) {
   );
   if (!ok) return;
   try {
-    const r = await mcpCall(proposal.mcp_tool, proposal.args);
+    const r = await mcpCall(proposal.mcp_tool, mcpArgsFromProposal(proposal));
     toast('Grant revoked (future access only)');
     await refreshAccessGrants();
     if (e.shareResult) e.shareResult.textContent = JSON.stringify(r, null, 2);

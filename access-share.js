@@ -3,20 +3,49 @@
  *
  * Canonical-object sharing over typed object refs. Does not duplicate payloads
  * for visibility. Never moves chain/path HEADs. Never calls set_head / set_path_head.
- * Worker grant APIs expected on 0.5.40 (`cairnstone_access_grant_*` + attachment resolve);
- * degrade honestly when tools are absent.
+ * Aligned to live worker 0.5.40 MCP schemas (additionalProperties: false).
  */
 
-/** Planned MCP tools (worker 0.5.40+). */
+/** Live MCP tools (worker 0.5.40+). */
 export const ACCESS_GRANT_TOOLS = Object.freeze({
   create: 'cairnstone_access_grant_create',
   get: 'cairnstone_access_grant_get',
   list: 'cairnstone_access_grant_list',
   revoke: 'cairnstone_access_grant_revoke',
   markFirstRead: 'cairnstone_access_grant_mark_first_read',
-  attachmentResolve: 'cairnstone_attachment_resolve',
+  attachmentResolve: 'cairnstone_attachment_ref_resolve',
   /** Assign creates a Task Run proposal only — dispatch waits for 10d/10e. */
-  taskRunPropose: 'cairnstone_task_run_propose'
+  taskRunPropose: 'cairnstone_task_run_propose',
+  forwardWithNote: 'cairnstone_forward_with_note',
+  /** Fallback when forward_with_note is absent from the catalog. */
+  sendMessage: 'cairnstone_send_message'
+});
+
+/** Exact allowlists matching live worker inputSchema (additionalProperties: false). */
+export const MCP_ARG_KEYS = Object.freeze({
+  [ACCESS_GRANT_TOOLS.create]: Object.freeze([
+    'grant_id', 'object_ref', 'principal_actor_id', 'permission',
+    'grantor_actor_id', 'actor_id', 'expires_at', 'notify'
+  ]),
+  [ACCESS_GRANT_TOOLS.revoke]: Object.freeze(['grant_id', 'actor_id']),
+  [ACCESS_GRANT_TOOLS.list]: Object.freeze([
+    'actor_id', 'principal_actor_id', 'object_ref', 'grantor_actor_id', 'status', 'limit'
+  ]),
+  [ACCESS_GRANT_TOOLS.taskRunPropose]: Object.freeze([
+    'task_run_id', 'requested_by', 'actor_id', 'assignee_actor_id', 'principal_actor_id',
+    'conversation_id', 'parent_turn_id', 'attachment_refs', 'object_refs', 'note', 'requested_intent'
+  ]),
+  [ACCESS_GRANT_TOOLS.attachmentResolve]: Object.freeze([
+    'actor_id', 'object_ref', 'object_refs', 'refs', 'attachment_set',
+    'conversation_id', 'apply', 'base_revision'
+  ]),
+  [ACCESS_GRANT_TOOLS.forwardWithNote]: Object.freeze([
+    'from', 'actor_id', 'to', 'note', 'object_ref', 'original_object_ref', 'original',
+    'message_id', 'thread_id', 'intent', 'priority', 'subject', 'labels', 'scope'
+  ]),
+  [ACCESS_GRANT_TOOLS.sendMessage]: Object.freeze([
+    'from', 'to', 'content', 'message_id', 'thread_id', 'intent', 'priority', 'subject', 'labels', 'scope'
+  ])
 });
 
 export const GRANT_PERMISSIONS = Object.freeze(['read', 'discuss', 'execute-against']);
@@ -45,6 +74,40 @@ export const HUMAN_COMMIT_OPS = Object.freeze([
 ]);
 
 const OBJECT_REF_RE = /^(msg|ac1|stone|repo|session|response|conversation|turn|grounded-response):(.+)$/i;
+
+/**
+ * Strip UI-only fields and enforce the live tool allowlist.
+ * @param {string} toolName
+ * @param {Record<string, unknown>} args
+ */
+export function sanitizeMcpArgs(toolName, args = {}) {
+  const allowed = MCP_ARG_KEYS[toolName];
+  const src = args && typeof args === 'object' ? args : {};
+  const out = {};
+  if (Array.isArray(allowed)) {
+    for (const key of allowed) {
+      if (src[key] !== undefined && src[key] !== null) out[key] = src[key];
+    }
+    return out;
+  }
+  // Unknown tool: still strip authority / dispatch UI flags.
+  for (const [k, v] of Object.entries(src)) {
+    if (v === undefined || v === null) continue;
+    if (k === 'accepted_state_authority' || k === 'auto_dispatch' || k === 'status') continue;
+    out[k] = v;
+  }
+  return out;
+}
+
+/** Prefer proposal.mcpArgs; fall back to sanitizing legacy proposal.args. */
+export function mcpArgsFromProposal(proposal) {
+  if (!proposal) return {};
+  const tool = proposal.mcp_tool;
+  if (proposal.mcpArgs && typeof proposal.mcpArgs === 'object') {
+    return sanitizeMcpArgs(tool, proposal.mcpArgs);
+  }
+  return sanitizeMcpArgs(tool, proposal.args || {});
+}
 
 /**
  * Parse a typed canonical object ref string.
@@ -178,6 +241,7 @@ export function grantStatusLabel(status) {
 
 /**
  * Build a Give Access proposal (presentation). Requires human Commit before MCP create.
+ * UI may carry accepted_state_authority; MCP args never include it.
  */
 export function buildAccessGrantProposal({
   object_ref,
@@ -185,7 +249,8 @@ export function buildAccessGrantProposal({
   permission = 'read',
   grantor_actor_id,
   notify = false,
-  expires_at = null
+  expires_at = null,
+  grant_id = null
 } = {}) {
   const ref = parseObjectRef(object_ref);
   const principal = String(principal_actor_id || '').trim();
@@ -197,6 +262,16 @@ export function buildAccessGrantProposal({
   if (!GRANT_PERMISSIONS.includes(perm)) errors.push('Permission must be read | discuss | execute-against');
   if (!grantor) errors.push('Grantor actor is required');
 
+  const mcpArgs = sanitizeMcpArgs(ACCESS_GRANT_TOOLS.create, {
+    grant_id: grant_id || undefined,
+    object_ref: ref?.raw || null,
+    principal_actor_id: principal || null,
+    permission: GRANT_PERMISSIONS.includes(perm) ? perm : null,
+    grantor_actor_id: grantor || null,
+    notify: Boolean(notify),
+    expires_at: expires_at || undefined
+  });
+
   return {
     ok: errors.length === 0,
     errors,
@@ -207,15 +282,9 @@ export function buildAccessGrantProposal({
     duplicates_payload: false,
     permission_implies_execute: permissionImpliesExecute(perm),
     mcp_tool: ACCESS_GRANT_TOOLS.create,
-    args: {
-      object_ref: ref?.raw || null,
-      principal_actor_id: principal || null,
-      permission: GRANT_PERMISSIONS.includes(perm) ? perm : null,
-      grantor_actor_id: grantor || null,
-      notify: Boolean(notify),
-      expires_at: expires_at || undefined,
-      accepted_state_authority: false
-    },
+    mcpArgs,
+    /** @deprecated use mcpArgs — kept for UI summary only (may contain extras historically) */
+    args: mcpArgs,
     summary: errors.length
       ? errors.join('; ')
       : `Give ${principal} ${perm} on ${ref.raw}${notify ? ' · notify' : ''}`
@@ -224,13 +293,18 @@ export function buildAccessGrantProposal({
 
 /**
  * Assign / Ask to work — Task Run proposal over the same object refs (not auto-dispatch).
+ * MCP args: attachment_refs + assignee_actor_id + requested_by + note (no status/auto_dispatch).
  */
 export function buildAssignProposal({
   object_refs = [],
   assignee_actor_id,
   requester_actor_id,
   task = '',
-  title = ''
+  title = '',
+  task_run_id = null,
+  conversation_id = null,
+  parent_turn_id = null,
+  requested_intent = null
 } = {}) {
   const refs = (Array.isArray(object_refs) ? object_refs : [object_refs])
     .map(r => (typeof r === 'string' ? parseObjectRef(r)?.raw : parseObjectRef(r?.object_ref || r?.raw)?.raw))
@@ -244,6 +318,17 @@ export function buildAssignProposal({
   if (!requester) errors.push('Requester actor is required');
   if (!taskText) errors.push('Task / ask text is required');
 
+  const mcpArgs = sanitizeMcpArgs(ACCESS_GRANT_TOOLS.taskRunPropose, {
+    task_run_id: task_run_id || undefined,
+    attachment_refs: refs,
+    assignee_actor_id: assignee || null,
+    requested_by: requester || null,
+    note: taskText || null,
+    conversation_id: conversation_id || undefined,
+    parent_turn_id: parent_turn_id || undefined,
+    requested_intent: requested_intent || undefined
+  });
+
   return {
     ok: errors.length === 0,
     errors,
@@ -256,15 +341,8 @@ export function buildAssignProposal({
     grants_access: false,
     note: 'Assign does not grant access by itself; pair with Give Access when visibility is needed.',
     mcp_tool: ACCESS_GRANT_TOOLS.taskRunPropose,
-    args: {
-      assignee_actor_id: assignee || null,
-      requester_actor_id: requester || null,
-      task: taskText || null,
-      attachment_refs: refs,
-      status: 'proposed',
-      auto_dispatch: false,
-      accepted_state_authority: false
-    },
+    mcpArgs,
+    args: mcpArgs,
     summary: errors.length
       ? errors.join('; ')
       : `Ask ${assignee} to work on ${refs.join(', ')} (proposal only)`
@@ -272,15 +350,19 @@ export function buildAssignProposal({
 }
 
 /**
- * Forward with note — new AC1 correspondence referencing original (intentional commentary path).
- * Uses existing cairnstone_send_message when available.
+ * Forward with note — prefer cairnstone_forward_with_note; fall back to send_message.
+ * @param {{ preferForwardTool?: boolean, forwardToolAvailable?: boolean|null }} opts
  */
 export function buildForwardWithNotePayload({
   from,
   to,
   note = '',
   original_object_ref,
-  subject = 'Forward with note'
+  subject = 'Forward with note',
+  thread_id = null,
+  intent = 'message',
+  preferForwardTool = true,
+  forwardToolAvailable = null
 } = {}) {
   const sender = String(from || '').trim();
   const recipients = (Array.isArray(to) ? to : String(to || '').split(','))
@@ -294,6 +376,34 @@ export function buildForwardWithNotePayload({
   if (!commentary) errors.push('Forward note / commentary is required');
   if (!original) errors.push('Original canonical object_ref is required');
 
+  const useForward = preferForwardTool && forwardToolAvailable !== false;
+  if (useForward) {
+    const mcpArgs = sanitizeMcpArgs(ACCESS_GRANT_TOOLS.forwardWithNote, {
+      from: sender || null,
+      to: recipients.length === 1 ? recipients[0] : recipients,
+      note: commentary || null,
+      object_ref: original?.raw || null,
+      subject: String(subject || 'Forward with note').trim() || 'Forward with note',
+      thread_id: thread_id || undefined,
+      intent: intent || 'message'
+    });
+    return {
+      ok: errors.length === 0,
+      errors,
+      operation: 'forward-with-note',
+      human_commit_required: true,
+      creates_new_correspondence: true,
+      duplicates_canonical_payload: false,
+      mcp_tool: ACCESS_GRANT_TOOLS.forwardWithNote,
+      fallback_mcp_tool: ACCESS_GRANT_TOOLS.sendMessage,
+      mcpArgs,
+      args: mcpArgs,
+      summary: errors.length
+        ? errors.join('; ')
+        : `Forward ${original.raw} to ${recipients.join(', ')} with note`
+    };
+  }
+
   const content = [
     commentary,
     '',
@@ -303,6 +413,15 @@ export function buildForwardWithNotePayload({
     'Correspondence transports intent only; no execution authority.'
   ].join('\n');
 
+  const mcpArgs = sanitizeMcpArgs(ACCESS_GRANT_TOOLS.sendMessage, {
+    from: sender || null,
+    to: recipients,
+    subject: String(subject || 'Forward with note').trim() || 'Forward with note',
+    intent: 'message',
+    labels: ['informational', 'work-plane'],
+    content
+  });
+
   return {
     ok: errors.length === 0,
     errors,
@@ -310,18 +429,12 @@ export function buildForwardWithNotePayload({
     human_commit_required: true,
     creates_new_correspondence: true,
     duplicates_canonical_payload: false,
-    mcp_tool: 'cairnstone_send_message',
-    args: {
-      from: sender || null,
-      to: recipients,
-      subject: String(subject || 'Forward with note').trim() || 'Forward with note',
-      intent: 'message',
-      labels: ['informational', 'work-plane'],
-      content
-    },
+    mcp_tool: ACCESS_GRANT_TOOLS.sendMessage,
+    mcpArgs,
+    args: mcpArgs,
     summary: errors.length
       ? errors.join('; ')
-      : `Forward ${original.raw} to ${recipients.join(', ')} with note`
+      : `Forward ${original.raw} to ${recipients.join(', ')} with note (send_message fallback)`
   };
 }
 
@@ -331,6 +444,10 @@ export function buildRevokeProposal({ grant_id, actor_id } = {}) {
   const errors = [];
   if (!grantId) errors.push('grant_id is required');
   if (!actor) errors.push('actor_id is required');
+  const mcpArgs = sanitizeMcpArgs(ACCESS_GRANT_TOOLS.revoke, {
+    grant_id: grantId || null,
+    actor_id: actor || null
+  });
   return {
     ok: errors.length === 0,
     errors,
@@ -338,16 +455,35 @@ export function buildRevokeProposal({ grant_id, actor_id } = {}) {
     human_commit_required: true,
     future_access_only: true,
     erases_already_read: false,
+    accepted_state_authority: false,
     mcp_tool: ACCESS_GRANT_TOOLS.revoke,
-    args: {
-      grant_id: grantId || null,
-      actor_id: actor || null,
-      accepted_state_authority: false
-    },
+    mcpArgs,
+    args: mcpArgs,
     summary: errors.length
       ? errors.join('; ')
       : `Revoke grant ${grantId} (blocks future access only)`
   };
+}
+
+/**
+ * Build attachment resolve MCP args for live cairnstone_attachment_ref_resolve.
+ */
+export function buildAttachmentResolveArgs({ object_ref, object_refs, actor_id } = {}) {
+  const refs = [];
+  if (object_ref) {
+    const p = parseObjectRef(object_ref);
+    if (p) refs.push(p.raw);
+  }
+  for (const r of object_refs || []) {
+    const p = typeof r === 'string' ? parseObjectRef(r) : parseObjectRef(r?.object_ref || r?.raw);
+    if (p) refs.push(p.raw);
+  }
+  const unique = [...new Set(refs)];
+  return sanitizeMcpArgs(ACCESS_GRANT_TOOLS.attachmentResolve, {
+    actor_id: actor_id || undefined,
+    object_ref: unique.length === 1 ? unique[0] : undefined,
+    object_refs: unique.length ? unique : undefined
+  });
 }
 
 /**
@@ -360,7 +496,7 @@ export function isToolMissingError(err) {
   return (
     /unknown tool|tool not found|method not found|not available|does not exist|no such tool|unsupported tool/.test(msg)
     || /unknown_tool|tool_not_found|not_found/.test(code)
-    || (payload?.ok === false && /access_grant|attachment_resolve|task_run_propose/.test(msg))
+    || (payload?.ok === false && /access_grant|attachment_ref_resolve|attachment_resolve|task_run_propose|forward_with_note/.test(msg))
   );
 }
 
@@ -417,7 +553,7 @@ export function localResolveAttachment(objectRef) {
     object_ref: parsed.raw,
     kind: parsed.kind,
     id: parsed.id,
-    note: 'Local parse only. Worker cairnstone_attachment_resolve hydrates metadata when 0.5.40+ is live.',
+    note: 'Local parse only. Worker cairnstone_attachment_ref_resolve hydrates metadata when 0.5.40+ is live.',
     accepted_state_authority: false
   };
 }

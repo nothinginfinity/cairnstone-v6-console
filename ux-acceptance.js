@@ -60,8 +60,9 @@ export const PRESENTATION_SAFE_MCP = Object.freeze([
   'cairnstone_access_grant_create',
   'cairnstone_access_grant_list',
   'cairnstone_access_grant_revoke',
-  'cairnstone_attachment_resolve',
-  'cairnstone_task_run_propose'
+  'cairnstone_attachment_ref_resolve',
+  'cairnstone_task_run_propose',
+  'cairnstone_forward_with_note'
 ]);
 
 /**

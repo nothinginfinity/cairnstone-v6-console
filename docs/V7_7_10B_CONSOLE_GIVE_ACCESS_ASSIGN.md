@@ -35,19 +35,20 @@ Share sheet reuses **Actor Inbox Navigator** chips for the principal picker (wor
 2. Human Commit checkbox required before grant / assign-proposal / forward; revoke uses an explicit confirm Commit.
 3. Grants never invent Scope / workspace / Code Session capability widening.
 4. If worker tools are absent (still 0.5.39), Commit degrades honestly with a structured result — no fake grant rows.
-5. Attachment resolve uses `cairnstone_attachment_resolve` when live; otherwise local typed-ref parse.
+5. Attachment resolve uses `cairnstone_attachment_ref_resolve` when live; otherwise local typed-ref parse.
 
 ## Planned MCP names (worker 0.5.40)
 
-- `cairnstone_access_grant_create`
+- `cairnstone_access_grant_create` — args: `object_ref`, `principal_actor_id`, `permission`, `grantor_actor_id`/`actor_id`, `notify?`, `expires_at?`, `grant_id?`
 - `cairnstone_access_grant_get`
-- `cairnstone_access_grant_list`
-- `cairnstone_access_grant_revoke`
+- `cairnstone_access_grant_list` — args: `actor_id`, optional filters
+- `cairnstone_access_grant_revoke` — args: `grant_id`, `actor_id`
 - `cairnstone_access_grant_mark_first_read`
-- `cairnstone_attachment_resolve`
-- `cairnstone_task_run_propose` (proposal only)
+- `cairnstone_attachment_ref_resolve` — args: `object_ref` / `object_refs` / `refs`, optional `actor_id`
+- `cairnstone_task_run_propose` — args: `attachment_refs`, `assignee_actor_id`, `requested_by`, `note?`
+- `cairnstone_forward_with_note` — args: `to`, `note`, `object_ref`, `from`/`actor_id?`, `subject?` (fallback: `cairnstone_send_message`)
 
-Forward-with-note uses live `cairnstone_send_message`.
+UI proposal objects may carry `accepted_state_authority: false` for display; **MCP args never include** that field (worker `additionalProperties: false`).
 
 ## Files
 
