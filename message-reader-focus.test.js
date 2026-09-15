@@ -15,7 +15,10 @@ import {
   readerErrorCopy,
   shouldNavigateToInboxForRead,
   shouldPushReaderHistory,
-  shouldPopReaderHistory
+  shouldPopReaderHistory,
+  stickyChromeOffset,
+  scrollReaderIntoView,
+  readerIsInView
 } from './message-reader-focus.js';
 
 test('focused reader uses mobile breakpoint matching shell CSS', () => {
@@ -81,4 +84,31 @@ test('history push/pop helpers avoid double-close', () => {
   assert.equal(shouldPopReaderHistory({ historyPushed: true, fromPopstate: false }), true);
   assert.equal(shouldPopReaderHistory({ historyPushed: true, fromPopstate: true }), false);
   assert.equal(shouldPopReaderHistory({ historyPushed: false, fromPopstate: false }), false);
+});
+
+test('desktop scrollReaderIntoView is immediate and accounts for sticky chrome', () => {
+  const calls = [];
+  const scrollCalls = [];
+  const el = {
+    scrollIntoView(opts) { calls.push(opts); },
+    getBoundingClientRect() { return { top: 12, bottom: 200, height: 188 }; }
+  };
+  assert.equal(scrollReaderIntoView(null), false);
+  assert.equal(scrollReaderIntoView(el, {
+    stickyOffset: 64,
+    scrollToFn: (arg) => scrollCalls.push(arg),
+    getScrollY: () => 400
+  }), true);
+  assert.deepEqual(calls[0], { behavior: 'auto', block: 'start' });
+  assert.equal(scrollCalls.length, 1);
+  assert.equal(scrollCalls[0].behavior, 'auto');
+  assert.ok(scrollCalls[0].top < 400);
+  assert.equal(stickyChromeOffset({ querySelector: () => null }), 0);
+  assert.equal(stickyChromeOffset({
+    querySelector: () => ({ getBoundingClientRect: () => ({ height: 56.2 }) })
+  }), 57);
+  assert.equal(readerIsInView(el, { stickyOffset: 64, viewportHeight: 800 }), false);
+  assert.equal(readerIsInView({
+    getBoundingClientRect: () => ({ top: 80, bottom: 400 })
+  }, { stickyOffset: 64, viewportHeight: 800 }), true);
 });

@@ -89,7 +89,7 @@ import {
   stonesDisclosureModel,
   workDisclosurePrefsFromDom
 } from './progressive-disclosure.js';
-import { applyReducedMotionClass, prefersReducedMotion } from './ux-acceptance.js';
+import { applyReducedMotionClass } from './ux-acceptance.js';
 import {
   MESSAGE_READER_SHEET_ID,
   captureListScroll,
@@ -97,10 +97,12 @@ import {
   readerErrorCopy,
   readerLoadingCopy,
   restoreListScroll,
+  scrollReaderIntoView,
   shouldNavigateToInboxForRead,
   shouldPopReaderHistory,
   shouldPushReaderHistory,
-  shouldUseFocusedReader
+  shouldUseFocusedReader,
+  stickyChromeOffset
 } from './message-reader-focus.js';
 
 const DEFAULT_RUNTIME = 'https://cairnstone-v6.jaredtechfit.workers.dev/mcp';
@@ -1604,14 +1606,9 @@ function closeMessageReaderFocus({ fromPopstate = false } = {}) {
 
 function revealInlineMessageReader() {
   if (!e.messageReaderCard) return;
-  try {
-    e.messageReaderCard.scrollIntoView({
-      behavior: prefersReducedMotion() ? 'auto' : 'smooth',
-      block: 'start'
-    });
-  } catch {
-    e.messageReaderCard.scrollIntoView(true);
-  }
+  scrollReaderIntoView(e.messageReaderCard, {
+    stickyOffset: stickyChromeOffset()
+  });
   focusReaderTitle(e.messageTitle);
 }
 
@@ -1634,6 +1631,7 @@ async function readMessage(m, { source = 'inbox' } = {}) {
     if (shouldNavigateToInboxForRead({ source, useFocusedReader: useFocused })) {
       panel('inbox');
     }
+    // Immediate reveal while loading — do not wait for MCP round-trip.
     revealInlineMessageReader();
   }
 
@@ -1644,14 +1642,16 @@ async function readMessage(m, { source = 'inbox' } = {}) {
     const metaHtml = [['from', r.metadata?.from || m.sender_id], ['to', recipient], ['intent', r.metadata?.intent || m.intent], ['thread', r.thread_id], ['message_id', m.message_id], ['stone', short(r.stone_hash)], ['scope', r.mutation_scope], ['exec_authority', 'none']].map(([k, v]) => chip(`${k}: ${v || '—'}`)).join('');
     const body = pretty(r.content);
     setMessageReaderContent({ title, metaHtml, body });
-    focusReaderTitle(useFocused ? e.messageReaderSheetTitle : e.messageTitle);
-    // Refresh listings underneath while preserving scroll (unread badges only).
+    // Quiet list refresh can restore prior windowY; re-reveal after so desktop never strands the reader.
     await refreshInbox({ quiet: true });
     if (source === 'activity') await refreshActivity({ quiet: true });
+    if (useFocused) focusReaderTitle(e.messageReaderSheetTitle);
+    else revealInlineMessageReader();
   } catch (err) {
     const fail = readerErrorCopy(err);
     setMessageReaderContent({ title: fail.title, metaHtml: '', body: fail.body });
-    focusReaderTitle(useFocused ? e.messageReaderSheetTitle : e.messageTitle);
+    if (useFocused) focusReaderTitle(e.messageReaderSheetTitle);
+    else revealInlineMessageReader();
   }
 }
 

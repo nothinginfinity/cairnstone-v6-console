@@ -106,10 +106,12 @@ test('Message Reader focus opens a mobile sheet and preserves list context', () 
   assert.match(html, /id="messageReaderSheetTitle"/);
   assert.match(html, /messageTitle" tabindex="-1"/);
   assert.match(css, /\.message-reader-panel/);
+  assert.match(css, /scroll-margin-top/);
   assert.match(css, /@media\(max-width:859px\)/);
   assert.match(app, /message-reader-focus/);
   assert.match(app, /openMessageReaderFocus|closeMessageReaderFocus/);
   assert.match(app, /shouldUseFocusedReader/);
+  assert.match(app, /scrollReaderIntoView|revealInlineMessageReader/);
   assert.match(app, /cairnstone_read_message/);
   assert.doesNotMatch(app, /accepted_state_authority:\s*true/);
 });

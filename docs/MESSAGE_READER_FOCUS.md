@@ -6,14 +6,14 @@
 
 ## Problem
 
-Selecting an Inbox/Activity message updated Message Reader state, but on mobile the reader card sat far down the page flow, forcing long manual scroll.
+Selecting an Inbox/Activity message updated Message Reader state, but on mobile the reader card sat far down the page flow, forcing long manual scroll. A follow-up desktop gap (PR #13 tip) also left the inline reader off-screen until manual scroll when quiet list refresh raced a smooth `scrollIntoView`.
 
 ## Behavior
 
 | Viewport | Behavior |
 |---|---|
 | Mobile (~390×844, width &lt; 860) | Focused `messageReaderSheet` over the current list with **Back**; list actor/plane/filter/thread state and scroll position restore on close |
-| Desktop (≥1280, width ≥ 860) | Inline `#messageReaderCard` on Inbox; Activity selection still routes to Inbox reader and scrolls it into view |
+| Desktop (≥1280, width ≥ 860) | Inline `#messageReaderCard` on Inbox; Activity selection still routes to Inbox reader; **instant** `scrollReaderIntoView` (sticky context-bar offset + `scroll-margin-top`) runs on select and again after quiet list refresh so the reader is never stranded |
 
 - Immediate loading copy while `cairnstone_read_message` runs; honest error title/body on failure.
 - Focus moves to the reader title (`tabindex="-1"`) after open/load.
@@ -35,4 +35,4 @@ node --test message-reader-focus.test.js shell-nav.test.js ux-acceptance.test.js
 python3 -m http.server 8080
 ```
 
-Manual: mobile ~390×844 tap message → sheet visible without page scroll; Back restores list. Desktop ≥1280 open message → inline reader visible without stranding.
+Manual: mobile ~390×844 tap message → sheet visible without page scroll; Back restores list. Desktop ≥1280 open message → inline reader immediately in view (no manual scroll).
