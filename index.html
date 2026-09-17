@@ -392,6 +392,31 @@
           <h2 id="codeDetailTitle">—</h2>
           <pre id="codeDetailBody" class="code-block wrap"></pre>
         </div>
+        <div class="card">
+          <div class="section-heading">
+            <div><div class="eyebrow">V7.7.10e · Work proposal gate</div><h2>Intent / Dispatch</h2></div>
+          </div>
+          <p class="muted small">Route consequential work intent first. Assign creates a Task Run proposal only; dispatch is a second Human Commit. Presentation never calls <code>set_head</code> / <code>set_path_head</code>.</p>
+          <label><span>Intent text</span><textarea id="intentText" rows="4" placeholder="Assign this Code Session task, give access, revoke, or forward with note…"></textarea></label>
+          <div class="invite-actions">
+            <button id="intentRouteButton" class="secondary" type="button">Route intent</button>
+          </div>
+          <div class="share-proposal-card">
+            <div class="eyebrow">Proposal summary</div>
+            <strong id="intentProposalTitle">No proposal</strong>
+            <ul id="intentProposalLines" class="share-proposal-lines muted small"><li>Route intent from Work to see a proposal or dispatch card.</li></ul>
+          </div>
+          <label class="check-row share-commit-row"><input id="intentHumanCommit" type="checkbox"><span>Human Commit — approve the proposed tool call without dispatching it</span></label>
+          <div class="invite-actions">
+            <button id="intentCommitProposal" class="primary" type="button" disabled>Commit proposal</button>
+          </div>
+          <label><span>Dispatch Task Run ID</span><input id="dispatchTaskRunId" autocomplete="off" placeholder="tr:…"></label>
+          <label class="check-row share-commit-row"><input id="dispatchHumanCommit" type="checkbox"><span>Human Commit — approve dispatch of this proposed Task Run</span></label>
+          <div class="invite-actions">
+            <button id="dispatchCommitButton" class="primary" type="button" disabled>Dispatch Task Run</button>
+          </div>
+          <pre id="intentResult" class="code-block wrap">No intent routed yet.</pre>
+        </div>
       </section>
       <section id="panel-invite" class="panel">
         <div class="card invite-card">
