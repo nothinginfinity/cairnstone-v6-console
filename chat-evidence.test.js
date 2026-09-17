@@ -38,6 +38,7 @@ describe('chatConfigState', () => {
     assert.equal(s.routeActive, false);
     assert.equal(s.toolDelegateAvailable, true);
     assert.equal(s.routeControlsEnabled, false);
+    assert.equal(s.routeControlsEditable, true);
     assert.equal(s.acceptedStateAuthority, false);
     assert.match(s.honesty, /grounded_response/);
   });

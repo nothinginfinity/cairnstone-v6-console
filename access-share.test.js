@@ -57,6 +57,8 @@ test('builders from message / stone / repo / session / response', () => {
   assert.equal(objectRefFromRepo({ repo: 'a/b', commit_sha: 'sha1' }).object_ref, 'repo:a/b@sha1');
   assert.equal(objectRefFromCodeSession('cs:1').object_ref, 'session:cs:1');
   assert.equal(objectRefFromResponse({ response_id: 'gr:9' }).object_ref, 'response:gr:9');
+  assert.equal(objectRefFromResponse(null), null);
+  assert.equal(objectRefFromResponse(undefined), null);
 });
 
 test('Give Access MCP args match live create schema (no accepted_state_authority)', () => {
