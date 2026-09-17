@@ -125,6 +125,15 @@ import {
   summarizeProposalCard,
   toolMissingHonesty
 } from './access-share.js';
+import {
+  INTENT_TOOLS,
+  buildIntentRouteArgs,
+  buildDispatchCommitArgs,
+  commitProposalTool,
+  compileDispatchCommitCard,
+  compileIntentProposalCard,
+  summarizeProposalCard as summarizeIntentCard
+} from './intent-proposal.js';
 
 const DEFAULT_RUNTIME = 'https://cairnstone-v6.jaredtechfit.workers.dev/mcp';
 const DEFAULT_CHAIN = 'cairnstone-v6-project-memory';
@@ -189,6 +198,11 @@ const state = {
     grants: [],
     proposal: null,
     toolAvailability: null
+  },
+  intent: {
+    routeResult: null,
+    proposalCard: null,
+    dispatchCard: null
   }
 };
 
@@ -244,6 +258,7 @@ const e = {
   savedViewFreshness: $('savedViewFreshness'), scopeAdvanced: $('scopeAdvanced'),
   settingsOpenSheet: $('settingsOpenSheet'), settingsActorPreview: $('settingsActorPreview'), settingsRuntimePreview: $('settingsRuntimePreview'),
   runtimeSheetRecheck: $('runtimeSheetRecheck'),
+  codeSessionId: $('codeSessionId'),
   openChatConfig: $('openChatConfig'), openEvidenceDrawer: $('openEvidenceDrawer'),
   chatConfigHonesty: $('chatConfigHonesty'), chatConfigRouteNote: $('chatConfigRouteNote'),
   chatCapabilityHonesty: $('chatCapabilityHonesty'), evidenceDrawerHint: $('evidenceDrawerHint'),
@@ -283,6 +298,11 @@ const e = {
   authorizationMeta: $('authorizationMeta'), authorizationSummary: $('authorizationSummary'), authorizationArguments: $('authorizationArguments'), authorizationRaw: $('authorizationRaw'),
   authorizationReject: $('authorizationReject'), authorizationApprove: $('authorizationApprove'), authorizationResult: $('authorizationResult'),
   authorizationEmptyState: $('authorizationEmptyState'), authorizeArgsBlock: $('authorizeArgsBlock'), authorizeRawBlock: $('authorizeRawBlock'),
+  intentText: $('intentText'), intentRouteButton: $('intentRouteButton'),
+  intentProposalTitle: $('intentProposalTitle'), intentProposalLines: $('intentProposalLines'),
+  intentHumanCommit: $('intentHumanCommit'), intentCommitProposal: $('intentCommitProposal'),
+  dispatchTaskRunId: $('dispatchTaskRunId'), dispatchHumanCommit: $('dispatchHumanCommit'),
+  dispatchCommitButton: $('dispatchCommitButton'), intentResult: $('intentResult'),
   toast: $('toast')
 };
 
@@ -2768,6 +2788,196 @@ async function commitShareAction() {
   }
 }
 
+function setIntentResult(payload) {
+  if (!e.intentResult) return;
+  if (typeof payload === 'string') {
+    e.intentResult.textContent = payload;
+    return;
+  }
+  e.intentResult.textContent = JSON.stringify(payload || {}, null, 2);
+}
+
+function intentToolUnavailablePayload(tool) {
+  return {
+    ok: false,
+    error: 'tool_not_available',
+    tool,
+    available: false,
+    accepted_state_authority: false
+  };
+}
+
+function refreshIntentSummary(card = state.intent.dispatchCard || state.intent.proposalCard) {
+  const summary = summarizeIntentCard(card);
+  if (e.intentProposalTitle) e.intentProposalTitle.textContent = summary.title;
+  if (e.intentProposalLines) {
+    e.intentProposalLines.innerHTML = summary.lines.map(line => `<li>${esc(line)}</li>`).join('');
+  }
+}
+
+function refreshIntentControls() {
+  refreshIntentSummary();
+  const requiresHumanCommit = state.intent.proposalCard?.require_human_commit === true;
+  const canCommitProposal = Boolean(state.intent.proposalCard?.proposal?.mcp_tool)
+    && (!requiresHumanCommit || Boolean(e.intentHumanCommit?.checked));
+  if (e.intentCommitProposal) e.intentCommitProposal.disabled = !canCommitProposal;
+  const taskRunId = (e.dispatchTaskRunId?.value || '').trim();
+  const built = buildDispatchCommitArgs({
+    task_run_id: taskRunId,
+    human_commit: Boolean(e.dispatchHumanCommit?.checked),
+    committed_by: (e.actorId?.value || 'console:jared').trim()
+  });
+  const dispatchCard = state.intent.dispatchCard;
+  const hasVerifiedDispatch = Boolean(
+    taskRunId
+    && dispatchCard?.task_run_id === taskRunId
+    && dispatchCard.dispatchable === true
+  );
+  if (e.dispatchCommitButton) e.dispatchCommitButton.disabled = !built.ok || !hasVerifiedDispatch;
+}
+
+async function routeConsoleIntent() {
+  const prepared = buildIntentRouteArgs({
+    text: e.intentText?.value || '',
+    actor_id: (e.actorId?.value || 'console:jared').trim(),
+    code_session_id: (e.codeSessionId?.value || currentCodeSessionId() || '').trim()
+  });
+  if (!prepared.ok) {
+    setIntentResult({ ok: false, error: 'invalid_route_args', errors: prepared.errors, accepted_state_authority: false });
+    toast(prepared.errors[0] || 'Intent text is required');
+    refreshIntentControls();
+    return;
+  }
+  busy(e.intentRouteButton, true, 'Routing…');
+  try {
+    if (workerHasTool(INTENT_TOOLS.route) === false) {
+      setIntentResult(intentToolUnavailablePayload(INTENT_TOOLS.route));
+      toast('Intent route tool is not available');
+      return;
+    }
+    const routed = await mcpCall(INTENT_TOOLS.route, prepared.args);
+    const priorDispatchCard = state.intent.dispatchCard;
+    const priorDispatchTaskRunId = (e.dispatchTaskRunId?.value || '').trim();
+    state.intent.routeResult = routed;
+    state.intent.proposalCard = compileIntentProposalCard(routed);
+    state.intent.dispatchCard = priorDispatchCard;
+    if (e.intentHumanCommit) e.intentHumanCommit.checked = false;
+    if (e.dispatchHumanCommit) e.dispatchHumanCommit.checked = false;
+    if (e.dispatchTaskRunId && !e.dispatchTaskRunId.value) e.dispatchTaskRunId.value = priorDispatchTaskRunId;
+    setIntentResult(routed);
+    toast(state.intent.proposalCard.intent === 'none' ? 'No consequential intent matched' : 'Intent routed');
+  } catch (err) {
+    setIntentResult(err.payload || { ok: false, error: err.message, accepted_state_authority: false });
+    toast(err.message);
+  } finally {
+    busy(e.intentRouteButton, false, 'Route intent');
+    refreshIntentControls();
+  }
+}
+
+async function commitConsoleProposal() {
+  const proposal = commitProposalTool(state.intent.proposalCard, {
+    human_commit: Boolean(e.intentHumanCommit?.checked),
+    committed_by: (e.actorId?.value || 'console:jared').trim()
+  });
+  if (!proposal.ok) {
+    setIntentResult(proposal);
+    if (proposal.error === 'human_commit_required') toast('Human Commit required');
+    else if (proposal.error === 'committed_by_required') toast('Actor ID / committed_by is required');
+    else if (proposal.error === 'proposal_not_ready') toast('Proposal is not ready to commit');
+    else toast('No proposal to commit');
+    refreshIntentControls();
+    return;
+  }
+  busy(e.intentCommitProposal, true, 'Committing…');
+  try {
+    if (workerHasTool(proposal.mcp_tool) === false) {
+      const payload = intentToolUnavailablePayload(proposal.mcp_tool);
+      payload.proposal = proposal;
+      setIntentResult(payload);
+      toast('Proposal tool is not available');
+      return;
+    }
+    const committed = await mcpCall(proposal.mcp_tool, proposal.args);
+    const taskRunId = String(
+      committed.task_run_id
+      || committed.task_run?.task_run_id
+      || proposal.args.task_run_id
+      || state.intent.proposalCard?.task_run_id
+      || ''
+    ).trim();
+    if (e.dispatchTaskRunId && taskRunId) e.dispatchTaskRunId.value = taskRunId;
+    state.intent.dispatchCard = taskRunId
+      ? compileDispatchCommitCard({
+        ...committed,
+        task_run_id: taskRunId,
+        status: committed.status || committed.task_run?.status || 'proposed'
+      })
+      : null;
+    if (e.dispatchHumanCommit) e.dispatchHumanCommit.checked = false;
+    setIntentResult(committed);
+    toast('Proposal committed');
+  } catch (err) {
+    setIntentResult(err.payload || { ok: false, error: err.message, accepted_state_authority: false });
+    toast(err.message);
+  } finally {
+    busy(e.intentCommitProposal, false, 'Commit proposal');
+    refreshIntentControls();
+  }
+}
+
+async function commitConsoleDispatch() {
+  const taskRunId = (e.dispatchTaskRunId?.value || '').trim();
+  const dispatchCard = state.intent.dispatchCard;
+  if (!taskRunId || dispatchCard?.task_run_id !== taskRunId || dispatchCard.dispatchable !== true) {
+    setIntentResult({
+      ok: false,
+      error: 'task_run_not_dispatchable',
+      task_run_id: taskRunId,
+      status: dispatchCard?.status || null,
+      accepted_state_authority: false
+    });
+    toast('Route and commit a proposed Task Run before dispatch');
+    refreshIntentControls();
+    return;
+  }
+  const prepared = buildDispatchCommitArgs({
+    task_run_id: taskRunId,
+    human_commit: Boolean(e.dispatchHumanCommit?.checked),
+    committed_by: (e.actorId?.value || 'console:jared').trim()
+  });
+  if (!prepared.ok) {
+    setIntentResult({ ok: false, error: 'invalid_dispatch_args', errors: prepared.errors, accepted_state_authority: false });
+    toast(prepared.errors[0] || 'Dispatch Human Commit required');
+    refreshIntentControls();
+    return;
+  }
+  busy(e.dispatchCommitButton, true, 'Dispatching…');
+  try {
+    if (workerHasTool(INTENT_TOOLS.dispatch) === false) {
+      const payload = intentToolUnavailablePayload(INTENT_TOOLS.dispatch);
+      payload.dispatch = prepared.args;
+      setIntentResult(payload);
+      toast('Dispatch tool is not available');
+      return;
+    }
+    const dispatched = await mcpCall(INTENT_TOOLS.dispatch, prepared.args);
+    state.intent.dispatchCard = compileDispatchCommitCard({
+      ...dispatched,
+      task_run_id: prepared.args.task_run_id,
+      status: dispatched.status || dispatched.task_run?.status || 'queued'
+    });
+    setIntentResult(dispatched);
+    toast('Task Run dispatched');
+  } catch (err) {
+    setIntentResult(err.payload || { ok: false, error: err.message, accepted_state_authority: false });
+    toast(err.message);
+  } finally {
+    busy(e.dispatchCommitButton, false, 'Dispatch Task Run');
+    refreshIntentControls();
+  }
+}
+
 async function refreshAccessGrants() {
   const objectRef = (e.accessGrantsObjectRef?.value || '').trim() || undefined;
   const actor_id = (e.actorId?.value || '').trim() || 'console:jared';
@@ -3219,6 +3429,13 @@ if (e.sharePrincipal) {
   e.sharePrincipal.addEventListener('input', refreshShareProposal);
 }
 if (e.shareCommitButton) e.shareCommitButton.addEventListener('click', () => commitShareAction());
+if (e.intentText) e.intentText.addEventListener('input', refreshIntentControls);
+if (e.intentHumanCommit) e.intentHumanCommit.addEventListener('change', refreshIntentControls);
+if (e.intentRouteButton) e.intentRouteButton.addEventListener('click', () => routeConsoleIntent());
+if (e.intentCommitProposal) e.intentCommitProposal.addEventListener('click', () => commitConsoleProposal());
+if (e.dispatchTaskRunId) e.dispatchTaskRunId.addEventListener('input', refreshIntentControls);
+if (e.dispatchHumanCommit) e.dispatchHumanCommit.addEventListener('change', refreshIntentControls);
+if (e.dispatchCommitButton) e.dispatchCommitButton.addEventListener('click', () => commitConsoleDispatch());
 if (e.accessGrantsRefresh) e.accessGrantsRefresh.addEventListener('click', () => refreshAccessGrants());
 if (e.codeGiveAccess || $('codeGiveAccess')) {
   /* Work buttons use data-share-mode handlers above once enabled by code-session.js */
@@ -3295,6 +3512,7 @@ initCodeSessionPanel({
   panel,
   invitePrefill: (opts) => inviteApi?.prefillForCodeSession?.(opts)
 });
+refreshIntentControls();
 applyReducedMotionClass();
 await health().catch(() => {});
 await loadVaultCatalog().catch(err => {
