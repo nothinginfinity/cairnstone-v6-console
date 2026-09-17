@@ -29,7 +29,8 @@ export function chatConfigState({
   let routeNote = 'Provider / model apply only to single-chain tool delegation.';
 
   if (!scopeResolved) {
-    honesty = 'Resolving Scope… Chat controls stay visible. Answer Depth is the default path once Scope resolves.';
+    honesty = 'Resolving Scope… Provider/model stay selectable. Ask needs resolved Scope; Answer Depth is the default path once Scope resolves.';
+    routeNote = 'Provider / model stay selectable while Scope resolves. Ask and route-only controls require resolved Scope.';
   } else if (routeActive) {
     honesty = 'Single-chain tool delegation · cairnstone_delegate. Answer Depth LOD controls are inactive on this path.';
     routeNote = 'Route / model / temperature / inbox snapshot apply to cairnstone_delegate only.';
@@ -48,6 +49,7 @@ export function chatConfigState({
     routeActive,
     toolDelegateAvailable,
     routeControlsEnabled: routeActive,
+    routeControlsEditable: true,
     outputTokensEnabled: true,
     honesty,
     routeNote,

@@ -661,7 +661,10 @@ function renderChatMode() {
     if (e.toolDelegate) e.toolDelegate.disabled = !cfg.toolDelegateAvailable;
   }
 
-  [e.providerSelect, e.modelSelect, e.credentialAlias, e.temperature, e.includeInbox].forEach(control => {
+  [e.providerSelect, e.modelSelect].forEach(control => {
+    if (control) control.disabled = !cfg.routeControlsEditable;
+  });
+  [e.credentialAlias, e.temperature, e.includeInbox].forEach(control => {
     if (control) control.disabled = !cfg.routeControlsEnabled;
   });
   if (e.outputTokens) e.outputTokens.disabled = false;
@@ -671,7 +674,7 @@ function renderChatMode() {
   const n = state.scopeSnapshot?.chains?.length || 0;
   if (e.chatModeNote) {
     if (!scopeResolved) {
-      e.chatModeNote.textContent = 'Resolving Scope… Ask + Answer Depth stay ready; Chat config holds route/model knobs.';
+      e.chatModeNote.textContent = 'Resolving Scope… provider/model stay selectable in Chat config; Ask waits for resolved Scope.';
     } else if (cfg.routeActive) {
       e.chatModeNote.textContent = `Tool delegation · cairnstone_delegate on ${chain}. Answer Depth LOD inactive on this path.`;
     } else if (single) {
@@ -1077,6 +1080,15 @@ function renderStaleActions(payload, requestedLod = null) {
 }
 
 function renderResult(r) {
+  if (!r || typeof r !== 'object' || Array.isArray(r)) {
+    clearAnswerDepthUi();
+    e.resultTitle.textContent = 'No result yet';
+    e.resultText.textContent = '(No answer returned)';
+    e.resultMeta.innerHTML = '';
+    syncEvidenceDrawerCta(null);
+    e.copyResult.disabled = false;
+    return;
+  }
   if (isGroundedResponse(r)) {
     const lod = clampResponseLod(r.response_lod ?? r.rendered?.response_lod, 1);
     e.resultTitle.textContent = `Answer Depth · ${responseLodLabel(lod)}`;

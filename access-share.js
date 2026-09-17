@@ -206,6 +206,7 @@ export function objectRefFromCodeSession(sessionId) {
 }
 
 export function objectRefFromResponse(result = {}) {
+  if (!result || typeof result !== 'object' || Array.isArray(result)) return null;
   const responseId = result.response_id || result.id;
   if (!responseId) return null;
   return {
