@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import {
   PREVIEW_TOOL,
   RETENTION_SCHEMA,
+  SAMPLE_RETENTION_CANDIDATES,
   buildPreviewArgs,
   compileRetentionCard,
   summarizeRetentionCard
@@ -30,23 +31,26 @@ test('missing tool returns fail-closed honesty', () => {
 test('preview args allowlist strips extras and keeps only allowed keys', () => {
   assert.deepEqual(buildPreviewArgs({
     actor_id: 'console:jared',
-    candidates: [{ object_ref: 'secret://pin', class: 'secret_pin', action: 'PIN' }, ['bad-row']],
-    items: [{ object_ref: 'repo://x', class: 'repo_read', action: 'KEEP_REF' }],
+    candidates: SAMPLE_RETENTION_CANDIDATES,
+    items: [{ class: 'repo_read', repo_ref: 'repo:x@sha/file' }],
     accepted_state_authority: true,
     set_head: true
   }), {
     actor_id: 'console:jared',
-    candidates: [{ object_ref: 'secret://pin', class: 'secret_pin', action: 'PIN' }],
-    items: [{ object_ref: 'repo://x', class: 'repo_read', action: 'KEEP_REF' }]
+    candidates: [...SAMPLE_RETENTION_CANDIDATES],
+    items: [{ class: 'repo_read', repo_ref: 'repo:x@sha/file' }]
   });
+  assert.equal(SAMPLE_RETENTION_CANDIDATES[0].class, 'secret');
+  assert.equal(SAMPLE_RETENTION_CANDIDATES[1].class, 'repo_read');
+  assert.equal(SAMPLE_RETENTION_CANDIDATES[1].flags.rehydratable, true);
 });
 
-test('PIN decision line renders and summary includes storage deleted false', () => {
+test('PIN and KEEP_REF lines prefer worker candidate_class', () => {
   const card = compileRetentionCard({
     ok: true,
     decisions: [
-      { action: 'PIN', class: 'secret_pin', reason: 'Active credential fingerprint pending rotation.' },
-      { action: 'KEEP_REF', class: 'repo_read', reason: 'Reference-only repository metadata.' }
+      { action: 'PIN', candidate_class: 'secret', reason: 'protected_or_sensitive' },
+      { action: 'KEEP_REF', candidate_class: 'repo_read', reason: 'rehydratable_with_immutable_ref' }
     ]
   }, { toolsAvailable: true });
   assert.equal(card.ok, true);
@@ -54,7 +58,8 @@ test('PIN decision line renders and summary includes storage deleted false', () 
   assert.equal(card.schema, RETENTION_SCHEMA);
   assert.equal(card.accepted_state_authority, false);
   assert.equal(card.storage_deleted, false);
-  assert.ok(card.lines.some(line => /PIN · secret_pin · Active credential fingerprint pending rotation\./.test(line)));
+  assert.ok(card.lines.some(line => /PIN · secret · protected_or_sensitive/.test(line)));
+  assert.ok(card.lines.some(line => /KEEP_REF · repo_read · rehydratable_with_immutable_ref/.test(line)));
   assert.match(summarizeRetentionCard(card), /Storage deleted: false/);
 });
 
@@ -70,6 +75,9 @@ test('module and wiring avoid head mutation calls', () => {
   const html = readFileSync(join(root, 'index.html'), 'utf8');
   assert.doesNotMatch(source, /set_head|set_path_head/);
   assert.match(app, /buildPreviewArgs|compileRetentionCard|summarizeRetentionCard/);
+  assert.match(app, /class: 'secret'/);
+  assert.doesNotMatch(app, /secret_pin/);
+  assert.match(app, /rehydratable: true/);
   assert.match(app, /retentionPreviewButton|retentionResult/);
   assert.match(html, /data-cairn-target="work\.retention"/);
   assert.match(html, /id="retentionPreviewButton"/);

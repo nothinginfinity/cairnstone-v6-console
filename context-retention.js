@@ -7,6 +7,19 @@ export const RETENTION_SCHEMA = 'cairnstone-context-retention-v1';
 
 const PREVIEW_ARG_KEYS = Object.freeze(['actor_id', 'candidates', 'items']);
 
+export const SAMPLE_RETENTION_CANDIDATES = Object.freeze([
+  {
+    class: 'secret',
+    flags: { secret: true }
+  },
+  {
+    class: 'repo_read',
+    repo_ref: 'repo:nothinginfinity/cairnstone-v6@6fed72f4/src/context-retention.js',
+    object_ref: 'repo:nothinginfinity/cairnstone-v6@6fed72f4/src/context-retention.js',
+    flags: { rehydratable: true }
+  }
+]);
+
 function pickAllowedArgs(keys, source = {}) {
   const src = source && typeof source === 'object' ? source : {};
   const out = {};
@@ -38,8 +51,14 @@ function normalizeDecisions(result = {}) {
         ? result.items
         : [];
   return rows.map((row) => ({
-    action: String(row?.action || row?.decision || row?.retention_action || 'KEEP_REF').trim() || 'KEEP_REF',
-    class: String(row?.class || row?.class_name || row?.category || 'unknown').trim() || 'unknown',
+    action: String(row?.action || row?.decision || row?.retention_action || 'KEEP_FULL').trim() || 'KEEP_FULL',
+    class: String(
+      row?.candidate_class
+      || row?.class
+      || row?.class_name
+      || row?.category
+      || 'unknown'
+    ).trim() || 'unknown',
     reason: String(row?.reason || row?.why || row?.rationale || '—').trim() || '—'
   }));
 }
