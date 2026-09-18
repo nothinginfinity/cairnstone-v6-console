@@ -146,6 +146,7 @@ import {
 } from './event-plane.js';
 import {
   PREVIEW_TOOL,
+  SAMPLE_RETENTION_CANDIDATES,
   buildPreviewArgs,
   compileRetentionCard,
   summarizeRetentionCard
@@ -2913,20 +2914,7 @@ async function pollWorkerAgentTree() {
 async function previewContextRetention() {
   const args = buildPreviewArgs({
     actor_id: (e.actorId?.value || 'console:jared').trim(),
-    candidates: [
-      {
-        object_ref: 'secret://workspace/auth-pin',
-        class: 'secret_pin',
-        action: 'PIN',
-        reason: 'Sensitive PIN material should stay pinned for operator continuity.'
-      },
-      {
-        object_ref: 'repo://nothinginfinity/cairnstone-v6-console#README.md',
-        class: 'repo_read',
-        action: 'KEEP_REF',
-        reason: 'Repository reference can remain as a non-sensitive pointer.'
-      }
-    ]
+    candidates: SAMPLE_RETENTION_CANDIDATES
   });
   busy(e.retentionPreviewButton, true, 'Previewing…');
   try {
