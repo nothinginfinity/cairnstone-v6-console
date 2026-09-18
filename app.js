@@ -144,6 +144,12 @@ import {
   subscribeHonesty,
   summarizeEventCard
 } from './event-plane.js';
+import {
+  PREVIEW_TOOL,
+  buildPreviewArgs,
+  compileRetentionCard,
+  summarizeRetentionCard
+} from './context-retention.js';
 
 const DEFAULT_RUNTIME = 'https://cairnstone-v6.jaredtechfit.workers.dev/mcp';
 const DEFAULT_CHAIN = 'cairnstone-v6-project-memory';
@@ -315,6 +321,7 @@ const e = {
   dispatchCommitButton: $('dispatchCommitButton'), intentResult: $('intentResult'),
   eventTaskRunId: $('eventTaskRunId'), eventPollButton: $('eventPollButton'),
   eventTreeButton: $('eventTreeButton'), eventResult: $('eventResult'),
+  retentionPreviewButton: $('retentionPreviewButton'), retentionResult: $('retentionResult'),
   toast: $('toast')
 };
 
@@ -2826,6 +2833,11 @@ function setEventResult(card) {
   e.eventResult.textContent = summarizeEventCard(card);
 }
 
+function setRetentionResult(card) {
+  if (!e.retentionResult) return;
+  e.retentionResult.textContent = summarizeRetentionCard(card);
+}
+
 function intentToolUnavailablePayload(tool) {
   return {
     ok: false,
@@ -2895,6 +2907,49 @@ async function pollWorkerAgentTree() {
     toast(err.message);
   } finally {
     busy(e.eventTreeButton, false, 'Poll agent tree');
+  }
+}
+
+async function previewContextRetention() {
+  const args = buildPreviewArgs({
+    actor_id: (e.actorId?.value || 'console:jared').trim(),
+    candidates: [
+      {
+        object_ref: 'secret://workspace/auth-pin',
+        class: 'secret_pin',
+        action: 'PIN',
+        reason: 'Sensitive PIN material should stay pinned for operator continuity.'
+      },
+      {
+        object_ref: 'repo://nothinginfinity/cairnstone-v6-console#README.md',
+        class: 'repo_read',
+        action: 'KEEP_REF',
+        reason: 'Repository reference can remain as a non-sensitive pointer.'
+      }
+    ]
+  });
+  busy(e.retentionPreviewButton, true, 'Previewing…');
+  try {
+    if (workerHasTool(PREVIEW_TOOL) === false) {
+      const card = compileRetentionCard({}, { toolsAvailable: false });
+      setRetentionResult(card);
+      toast('Retention preview tool is not available');
+      return;
+    }
+    const result = await mcpCall(PREVIEW_TOOL, args);
+    setRetentionResult(compileRetentionCard(result, { toolsAvailable: true }));
+    toast('Retention preview ready');
+  } catch (err) {
+    if (isToolMissingError(err)) {
+      const card = compileRetentionCard(err.payload || { ok: false, error: 'tool_unavailable' }, { toolsAvailable: false });
+      setRetentionResult(card);
+      toast('Retention preview tool is not available');
+      return;
+    }
+    setRetentionResult(compileRetentionCard(err.payload || { ok: false, error: err.message }, { toolsAvailable: true }));
+    toast(err.message || 'Retention preview failed');
+  } finally {
+    busy(e.retentionPreviewButton, false, 'Preview retention');
   }
 }
 
@@ -3529,6 +3584,7 @@ if (e.dispatchHumanCommit) e.dispatchHumanCommit.addEventListener('change', refr
 if (e.dispatchCommitButton) e.dispatchCommitButton.addEventListener('click', () => commitConsoleDispatch());
 if (e.eventPollButton) e.eventPollButton.addEventListener('click', () => pollWorkerEvents());
 if (e.eventTreeButton) e.eventTreeButton.addEventListener('click', () => pollWorkerAgentTree());
+if (e.retentionPreviewButton) e.retentionPreviewButton.addEventListener('click', () => previewContextRetention());
 if (e.accessGrantsRefresh) e.accessGrantsRefresh.addEventListener('click', () => refreshAccessGrants());
 if (e.codeGiveAccess || $('codeGiveAccess')) {
   /* Work buttons use data-share-mode handlers above once enabled by code-session.js */
