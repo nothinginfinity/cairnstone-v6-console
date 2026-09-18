@@ -417,6 +417,18 @@
           </div>
           <pre id="intentResult" class="code-block wrap">No intent routed yet.</pre>
         </div>
+        <div class="card" data-cairn-target="work.events">
+          <div class="section-heading">
+            <div><div class="eyebrow">V7.7.10f · Worker event-plane poll</div><h2>Events / Agent Tree</h2></div>
+          </div>
+          <p class="muted small">Poll-only view for worker event-plane projection. Uses the current Actor ID context. Presentation never invents events, never claims live WebSocket transport, and never moves HEADs.</p>
+          <label><span>Task Run ID <small>(optional root / filter)</small></span><input id="eventTaskRunId" autocomplete="off" placeholder="tr:…"></label>
+          <div class="invite-actions">
+            <button id="eventPollButton" class="secondary" type="button">Poll events</button>
+            <button id="eventTreeButton" class="secondary" type="button">Poll agent tree</button>
+          </div>
+          <pre id="eventResult" class="code-block wrap">No event-plane result yet.</pre>
+        </div>
       </section>
       <section id="panel-invite" class="panel">
         <div class="card invite-card">

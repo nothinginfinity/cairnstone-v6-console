@@ -134,6 +134,16 @@ import {
   compileIntentProposalCard,
   summarizeProposalCard as summarizeIntentCard
 } from './intent-proposal.js';
+import {
+  AGENT_TREE_TOOL,
+  EVENT_LIST_TOOL,
+  buildAgentTreeArgs,
+  buildEventListArgs,
+  compileAgentTreeCard,
+  compileEventListCard,
+  subscribeHonesty,
+  summarizeEventCard
+} from './event-plane.js';
 
 const DEFAULT_RUNTIME = 'https://cairnstone-v6.jaredtechfit.workers.dev/mcp';
 const DEFAULT_CHAIN = 'cairnstone-v6-project-memory';
@@ -303,6 +313,8 @@ const e = {
   intentHumanCommit: $('intentHumanCommit'), intentCommitProposal: $('intentCommitProposal'),
   dispatchTaskRunId: $('dispatchTaskRunId'), dispatchHumanCommit: $('dispatchHumanCommit'),
   dispatchCommitButton: $('dispatchCommitButton'), intentResult: $('intentResult'),
+  eventTaskRunId: $('eventTaskRunId'), eventPollButton: $('eventPollButton'),
+  eventTreeButton: $('eventTreeButton'), eventResult: $('eventResult'),
   toast: $('toast')
 };
 
@@ -2809,6 +2821,11 @@ function setIntentResult(payload) {
   e.intentResult.textContent = JSON.stringify(payload || {}, null, 2);
 }
 
+function setEventResult(card) {
+  if (!e.eventResult) return;
+  e.eventResult.textContent = summarizeEventCard(card);
+}
+
 function intentToolUnavailablePayload(tool) {
   return {
     ok: false,
@@ -2817,6 +2834,68 @@ function intentToolUnavailablePayload(tool) {
     available: false,
     accepted_state_authority: false
   };
+}
+
+async function pollWorkerEvents() {
+  const args = buildEventListArgs({
+    actor_id: (e.actorId?.value || 'console:jared').trim(),
+    task_run_id: (e.eventTaskRunId?.value || '').trim(),
+    limit: 25
+  });
+  busy(e.eventPollButton, true, 'Polling…');
+  try {
+    if (workerHasTool(EVENT_LIST_TOOL) === false) {
+      const card = compileEventListCard({}, { toolsAvailable: false });
+      setEventResult(card);
+      toast('Event list tool is not available');
+      return;
+    }
+    const result = await mcpCall(EVENT_LIST_TOOL, args);
+    setEventResult(compileEventListCard(result, { toolsAvailable: true }));
+    toast('Worker events polled');
+  } catch (err) {
+    if (isToolMissingError(err)) {
+      const card = compileEventListCard(err.payload || {}, { toolsAvailable: false });
+      setEventResult(card);
+      toast('Event list tool is not available');
+      return;
+    }
+    setEventResult(compileEventListCard(err.payload || { ok: false, error: err.message }, { toolsAvailable: true }));
+    toast(err.message);
+  } finally {
+    busy(e.eventPollButton, false, 'Poll events');
+  }
+}
+
+async function pollWorkerAgentTree() {
+  const args = buildAgentTreeArgs({
+    actor_id: (e.actorId?.value || 'console:jared').trim(),
+    root_task_run_id: (e.eventTaskRunId?.value || '').trim(),
+    limit: 50
+  });
+  busy(e.eventTreeButton, true, 'Polling…');
+  try {
+    if (workerHasTool(AGENT_TREE_TOOL) === false) {
+      const card = compileAgentTreeCard({}, { toolsAvailable: false });
+      setEventResult(card);
+      toast('Agent tree tool is not available');
+      return;
+    }
+    const result = await mcpCall(AGENT_TREE_TOOL, args);
+    setEventResult(compileAgentTreeCard(result, { toolsAvailable: true }));
+    toast('Agent tree polled');
+  } catch (err) {
+    if (isToolMissingError(err)) {
+      const card = compileAgentTreeCard(err.payload || {}, { toolsAvailable: false });
+      setEventResult(card);
+      toast('Agent tree tool is not available');
+      return;
+    }
+    setEventResult(compileAgentTreeCard(err.payload || { ok: false, error: err.message }, { toolsAvailable: true }));
+    toast(err.message);
+  } finally {
+    busy(e.eventTreeButton, false, 'Poll agent tree');
+  }
 }
 
 function refreshIntentSummary(card = state.intent.dispatchCard || state.intent.proposalCard) {
@@ -3448,6 +3527,8 @@ if (e.intentCommitProposal) e.intentCommitProposal.addEventListener('click', () 
 if (e.dispatchTaskRunId) e.dispatchTaskRunId.addEventListener('input', refreshIntentControls);
 if (e.dispatchHumanCommit) e.dispatchHumanCommit.addEventListener('change', refreshIntentControls);
 if (e.dispatchCommitButton) e.dispatchCommitButton.addEventListener('click', () => commitConsoleDispatch());
+if (e.eventPollButton) e.eventPollButton.addEventListener('click', () => pollWorkerEvents());
+if (e.eventTreeButton) e.eventTreeButton.addEventListener('click', () => pollWorkerAgentTree());
 if (e.accessGrantsRefresh) e.accessGrantsRefresh.addEventListener('click', () => refreshAccessGrants());
 if (e.codeGiveAccess || $('codeGiveAccess')) {
   /* Work buttons use data-share-mode handlers above once enabled by code-session.js */
@@ -3525,6 +3606,7 @@ initCodeSessionPanel({
   invitePrefill: (opts) => inviteApi?.prefillForCodeSession?.(opts)
 });
 refreshIntentControls();
+setEventResult(subscribeHonesty());
 applyReducedMotionClass();
 await health().catch(() => {});
 await loadVaultCatalog().catch(err => {
