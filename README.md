@@ -2,6 +2,10 @@
 
 A thin, provider-neutral browser client for the live CairnStone V7 runtime.
 
+## Zero-ID questionnaire Work UX
+
+Default **Work** is a 3-question questionnaire (What / Who / What should they do). Humans answer human questions; CairnStone auto-resolves workspace, access readiness, Code Session, pins, IDs, and Task Run + events. Access grant / Human Commit / Dispatch stay explicit second taps. Raw IDs and SHAs live under Advanced. Does not weaken `scoped_grant`; **10h.4** stays separate. See `docs/ZERO_ID_QUESTIONNAIRE_WORK_UX.md`.
+
 ## V7.7.10b Give Access / Assign / Forward-with-note
 
 Console entry points for **canonical-object sharing**: Give access… (access grant over typed `object_ref`), Assign / Ask to work (Task Run **proposal** only), and Forward with note (new AC1 referencing the original). Reuses Actor Inbox Navigator for principal pick; Human Commit required; presentation never moves HEADs. Worker grant APIs expected on **0.5.40** — Console degrades honestly if tools are absent. See `docs/V7_7_10B_CONSOLE_GIVE_ACCESS_ASSIGN.md`.

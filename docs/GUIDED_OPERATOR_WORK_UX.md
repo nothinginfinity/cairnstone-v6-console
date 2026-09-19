@@ -1,8 +1,12 @@
-# Guided operator Work UX (mobile order-of-operations)
+# Guided operator Work UX (Advanced · ID-ish steps)
+
+The **default** Work surface is now the **Zero-ID questionnaire** — see [`ZERO_ID_QUESTIONNAIRE_WORK_UX.md`](./ZERO_ID_QUESTIONNAIRE_WORK_UX.md).
+
+This document describes the prior six-step order-of-operations guide, which remains available under **Advanced · ID-ish steps & raw values**.
 
 Presentation-only Console slice. Does **not** change `scoped_grant` semantics, mint broader authority, auto-dispatch, or move accepted-state HEADs. **10h.4 runtime acceptance remains a separate gate.**
 
-## Operator flow (one recommended CTA)
+## Operator flow (Advanced escape hatch)
 
 1. Choose workspace (ID + session-only capability)
 2. Add collaborator (workspace invite — distinct from Share reference)
@@ -11,7 +15,7 @@ Presentation-only Console slice. Does **not** change `scoped_grant` semantics, m
 5. Review + Human Commit proposal
 6. Dispatch + Watch (Events / Agent Tree; Retention is diagnostic)
 
-Later cards stay hidden until prerequisites are ready. Raw IDs live under **Advanced**.
+Raw IDs and base-commit SHAs live under Advanced. Default Work does not ask for them.
 
 ## Chat vs Code Session
 
@@ -25,7 +29,7 @@ Uses `cairnstone_conversation_session_list` and only offers rows with a real `co
 
 ## Files
 
-- `work-guide.js` / `work-guide.test.js` — state machine
+- `work-guide.js` / `work-guide.test.js` — questionnaire + Advanced state machines
 - `work-guide-panel.js` — DOM wiring
 - `index.html`, `styles.css`, `app.js`, `code-session.js` — shell integration
 
