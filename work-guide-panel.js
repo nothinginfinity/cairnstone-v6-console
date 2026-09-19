@@ -1,28 +1,31 @@
 /**
- * Zero-ID questionnaire Work panel wiring (presentation only).
- * Human answers what / who / what should they do; CairnStone auto-resolves
+ * Zero-ID questionnaire Work panel (presentation only).
+ * Humans answer what / who / what should they do; CairnStone auto-resolves
  * workspace, access readiness, Code Session, pins, IDs, Task Run + events.
  * Never mints grants, never auto-dispatches, never moves HEADs, never weakens scoped_grant.
  */
 
-import { SEED_ACTORS } from './actor-inbox-nav.js';
 import {
   WORK_ACTION_CHOICES,
   buildAutoResolveSnapshot,
   codeSessionsFromConversationList,
   composeIntentFromAnswers,
+  extractResolvedCommitSha,
   humanActorOptions,
+  mintCodeSessionId,
+  parseRepoPick,
   questionnaireModel,
   readWorkGuidePrefs,
   redactRawSha,
   writeWorkGuidePrefs
 } from './work-guide.js';
 
-function shortId(id) {
-  const s = String(id || '').trim();
-  if (!s) return '—';
-  if (s.length <= 20) return s;
-  return `${s.slice(0, 8)}…${s.slice(-6)}`;
+function esc(s) {
+  return String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
 
 function parseRepos(text) {
@@ -54,7 +57,6 @@ export function initWorkGuidePanel(api = {}) {
     mcpCall,
     toast = () => {},
     busy = () => {},
-    esc = (s) => String(s ?? ''),
     actorId = () => '',
     panel = () => {},
     invitePrefill = null
@@ -81,9 +83,16 @@ export function initWorkGuidePanel(api = {}) {
     resolveList: document.getElementById('workAutoResolveList'),
     resolveRefresh: document.getElementById('workAutoResolveRefresh'),
     confirmCard: document.getElementById('workConfirmCard'),
+    codeSessionCard: document.getElementById('workCodeSessionCard'),
+    codeSessionStatus: document.getElementById('workCodeSessionStatus'),
+    repoBranchPick: document.getElementById('workRepoBranchPick'),
+    repoPick: document.getElementById('workRepoPick'),
+    branchPick: document.getElementById('workBranchPick'),
+    repoBranchBindBtn: document.getElementById('workRepoBranchBindBtn'),
+    repoBranchNote: document.getElementById('workRepoBranchNote'),
+    codeLoad: document.getElementById('codeLoad'),
+    codeSurface: document.getElementById('codeSurface'),
     advancedShell: document.getElementById('workAdvancedShell'),
-    stepCollaborator: document.getElementById('workStepCollaborator'),
-    stepCodeSession: document.getElementById('workStepCodeSession'),
     workspaceId: document.getElementById('workWorkspaceId'),
     workspaceCap: document.getElementById('codeWorkspaceCap'),
     workspaceSave: document.getElementById('workWorkspaceSave'),
@@ -98,7 +107,6 @@ export function initWorkGuidePanel(api = {}) {
     createRepos: document.getElementById('workCodeSessionCreateRepos'),
     createCommits: document.getElementById('workCodeSessionCreateCommits'),
     createBtn: document.getElementById('workCodeSessionCreateBtn'),
-    stageIntent: document.getElementById('workStageIntent'),
     stageEvents: document.getElementById('workStageEvents'),
     stageRetention: document.getElementById('workStageRetention'),
     intentText: document.getElementById('intentText'),
@@ -115,9 +123,15 @@ export function initWorkGuidePanel(api = {}) {
   let discoveredSessions = [];
   let resolving = false;
   let consoleViewKickoffDone = false;
+  let applyingBoundSession = false;
+  let workspaceHumanMeta = { conversationTitle: '', projectName: '', fromPrefs: false };
+  let needsRepoBranchPick = false;
 
   const prefs0 = readWorkGuidePrefs();
-  if (els.workspaceId && prefs0.workspaceId) els.workspaceId.value = prefs0.workspaceId;
+  if (els.workspaceId && prefs0.workspaceId) {
+    els.workspaceId.value = prefs0.workspaceId;
+    workspaceHumanMeta.fromPrefs = true;
+  }
   if (els.answerWhat && answers.what) els.answerWhat.value = answers.what;
   if (els.actionNote && answers.actionNote) els.actionNote.value = answers.actionNote;
   if (answers.what && answers.whoMailboxId && (answers.actionId || answers.actionLabel)) {
@@ -137,7 +151,7 @@ export function initWorkGuidePanel(api = {}) {
     writeWorkGuidePrefs({ answers, autoResolve });
   }
 
-  function gatherQuestionnaireInput() {
+  function gatherInput() {
     return {
       answers,
       questionIndex,
@@ -152,18 +166,42 @@ export function initWorkGuidePanel(api = {}) {
     };
   }
 
+  function softScrollToCodeSession() {
+    const target = els.codeSurface?.classList.contains('hidden') === false
+      ? els.codeSurface
+      : els.codeSessionCard;
+    if (!target || typeof target.scrollIntoView !== 'function') return;
+    try {
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } catch {
+      /* ignore */
+    }
+  }
+
   function applyVisibility(model) {
-    const v = model.visibility;
     const qId = model.currentQuestionId;
     els.qWhat?.classList.toggle('hidden', qId !== 'what');
     els.qWho?.classList.toggle('hidden', qId !== 'who');
     els.qAction?.classList.toggle('hidden', qId !== 'what_should_they_do');
-    els.resolveCard?.classList.toggle('hidden', !v.autoResolve);
-    els.confirmCard?.classList.toggle('hidden', !v.confirm && !model.allAnswered);
-    if (model.allAnswered) els.confirmCard?.classList.remove('hidden');
-    els.stageEvents?.classList.toggle('hidden', !v.events);
-    els.stageRetention?.classList.toggle('hidden', !v.retention);
+    els.resolveCard?.classList.toggle('hidden', !model.allAnswered);
+    els.confirmCard?.classList.toggle('hidden', !model.allAnswered);
+    els.codeSessionCard?.classList.toggle('hidden', !model.allAnswered);
+    els.repoBranchPick?.classList.toggle('hidden', !(model.allAnswered && needsRepoBranchPick));
+    els.stageEvents?.classList.toggle('hidden', !model.visibility?.events);
+    els.stageRetention?.classList.toggle('hidden', !model.visibility?.retention);
     els.guideBack?.classList.toggle('hidden', model.questionNumber <= 1 && !model.allAnswered);
+
+    if (els.codeSessionStatus) {
+      if (!model.allAnswered) {
+        els.codeSessionStatus.textContent = 'Answer the three questions to resolve a Code Session.';
+      } else if (needsRepoBranchPick) {
+        els.codeSessionStatus.textContent = 'No Chat-bound Code Session — pick one repo and branch below. Pins resolve server-side.';
+      } else if (autoResolve.code_session?.status === 'resolved') {
+        els.codeSessionStatus.textContent = autoResolve.code_session.detail || 'Code Session bound via Chat';
+      } else {
+        els.codeSessionStatus.textContent = 'Resolving Code Session…';
+      }
+    }
   }
 
   function renderActorPicker(model) {
@@ -207,7 +245,7 @@ export function initWorkGuidePanel(api = {}) {
   }
 
   function renderGuide() {
-    const model = questionnaireModel(gatherQuestionnaireInput());
+    const model = questionnaireModel(gatherInput());
     if (els.guideTitle) els.guideTitle.textContent = model.title;
     if (els.guideSubtitle) els.guideSubtitle.textContent = model.subtitle;
     if (els.guideHint) {
@@ -251,30 +289,19 @@ export function initWorkGuidePanel(api = {}) {
   }
 
   function selectWho(mailboxId, display, key) {
-    answers = {
-      ...answers,
-      whoMailboxId: mailboxId,
-      whoDisplay: display,
-      whoKey: key,
-      who: display
-    };
+    answers = { ...answers, whoMailboxId: mailboxId, whoDisplay: display, whoKey: key, who: display };
     persistAnswers();
     renderGuide();
   }
 
   function selectAction(actionId, label) {
-    answers = {
-      ...answers,
-      actionId,
-      actionLabel: label,
-      what_should_they_do: label
-    };
+    answers = { ...answers, actionId, actionLabel: label, what_should_they_do: label };
     persistAnswers();
     renderGuide();
   }
 
   function answerCurrentAndAdvance() {
-    const model = questionnaireModel(gatherQuestionnaireInput());
+    const model = questionnaireModel(gatherInput());
     const qid = model.currentQuestionId;
     if (qid === 'what') {
       const what = (els.answerWhat?.value || '').trim();
@@ -309,9 +336,7 @@ export function initWorkGuidePanel(api = {}) {
       void runAutoResolve();
       return;
     }
-    if (model.allAnswered) {
-      void runAutoResolve();
-    }
+    if (model.allAnswered) void runAutoResolve();
   }
 
   function goBack() {
@@ -362,7 +387,42 @@ export function initWorkGuidePanel(api = {}) {
     }
   }
 
-  async function runAutoResolve() {
+  async function resolvePinsServerSide(repoFull, branch) {
+    const parsed = parseRepoPick(repoFull);
+    if (!parsed) throw new Error('Repository must look like owner/repo');
+    const ref = String(branch || 'main').trim() || 'main';
+    const data = await mcpCall('cairnstone_reconcile_repo', {
+      chain: parsed.full,
+      owner: parsed.owner,
+      repo: parsed.repo,
+      ref
+    });
+    const sha = extractResolvedCommitSha(data);
+    if (!sha) {
+      throw new Error('Server did not return a resolved pin for that repo + branch');
+    }
+    return {
+      sourceRepos: [parsed.full],
+      baseCommits: [{ repo: parsed.full, commit_sha: sha }],
+      workingTransport: { branch: ref, observed_commit_sha: sha }
+    };
+  }
+
+  function applyBoundSession(codeSessionId, { fromDiscovery = false } = {}) {
+    if (!codeSessionId) return;
+    if (els.codeSessionId) els.codeSessionId.value = codeSessionId;
+    try { sessionStorage.setItem('cs.codeSessionId', codeSessionId); } catch { /* ignore */ }
+    writeWorkGuidePrefs({ codeSessionFromDiscovery: Boolean(fromDiscovery) });
+    // Guard so the change listener does not clobber codeSessionFromDiscovery.
+    applyingBoundSession = true;
+    try {
+      els.codeSessionId?.dispatchEvent(new Event('change'));
+    } finally {
+      applyingBoundSession = false;
+    }
+  }
+
+  async function runAutoResolve({ scrollToCode = true } = {}) {
     if (resolving) return;
     resolving = true;
     renderGuide();
@@ -371,6 +431,7 @@ export function initWorkGuidePanel(api = {}) {
       const prefs = readWorkGuidePrefs();
       let workspaceId = (els.workspaceId?.value || prefs.workspaceId || '').trim();
       const hasWorkspaceCapability = Boolean((els.workspaceCap?.value || '').trim());
+      workspaceHumanMeta.fromPrefs = Boolean(prefs.workspaceId);
       let sessions = [];
       try {
         sessions = await discoverBoundSessions();
@@ -381,6 +442,9 @@ export function initWorkGuidePanel(api = {}) {
       }
 
       const best = sessions[0] || null;
+      if (best?.conversationTitle) workspaceHumanMeta.conversationTitle = best.conversationTitle;
+      if (best?.projectName) workspaceHumanMeta.projectName = best.projectName;
+
       if (best?.workspaceId && !workspaceId) {
         workspaceId = best.workspaceId;
         if (els.workspaceId) els.workspaceId.value = workspaceId;
@@ -389,10 +453,10 @@ export function initWorkGuidePanel(api = {}) {
       }
 
       if (best?.codeSessionId) {
-        if (els.codeSessionId) els.codeSessionId.value = best.codeSessionId;
-        try { sessionStorage.setItem('cs.codeSessionId', best.codeSessionId); } catch { /* ignore */ }
-        writeWorkGuidePrefs({ codeSessionFromDiscovery: true });
-        els.codeSessionId?.dispatchEvent(new Event('change'));
+        applyBoundSession(best.codeSessionId, { fromDiscovery: true });
+        needsRepoBranchPick = false;
+      } else {
+        needsRepoBranchPick = true;
       }
 
       const workspaceCapability = (els.workspaceCap?.value || '').trim();
@@ -407,6 +471,9 @@ export function initWorkGuidePanel(api = {}) {
       const taskRunId = (els.dispatchTaskRunId?.value || '').trim();
       autoResolve = buildAutoResolveSnapshot({
         workspaceId,
+        conversationTitle: workspaceHumanMeta.conversationTitle,
+        projectName: workspaceHumanMeta.projectName,
+        fromPrefs: workspaceHumanMeta.fromPrefs || Boolean(workspaceId),
         hasWorkspaceCapability,
         codeSession: best,
         sourceRepos,
@@ -414,6 +481,7 @@ export function initWorkGuidePanel(api = {}) {
         taskRunId,
         proposalReady,
         eventsReady: proposalReady || Boolean(taskRunId),
+        needsRepoBranchPick,
         idBundle: {
           workspace_id: workspaceId,
           code_session_id: best?.codeSessionId || null,
@@ -423,7 +491,6 @@ export function initWorkGuidePanel(api = {}) {
       });
       persistAnswers();
 
-      // Compose intent into the confirm card; do NOT auto route / commit / dispatch.
       if (els.intentText) {
         els.intentText.value = composeIntentFromAnswers(answers);
         els.intentText.dataset.fromQuestionnaire = '1';
@@ -431,17 +498,76 @@ export function initWorkGuidePanel(api = {}) {
       }
 
       if (best?.codeSessionId && hasWorkspaceCapability && !consoleViewKickoffDone) {
-        // Soft-load console view once; failures stay honest. Do not re-enter resolve from the load event.
         consoleViewKickoffDone = true;
-        document.getElementById('codeLoad')?.click();
+        els.codeLoad?.click();
       }
+
+      if (scrollToCode && best?.codeSessionId) softScrollToCodeSession();
 
       toast(best?.codeSessionId
         ? 'Resolved from Conversation bindings — review before Human Commit'
-        : 'Partial resolve — check Advanced if discovery cannot finish');
+        : 'Pick one repo + branch to bind a Code Session (pins resolve server-side)');
     } finally {
       resolving = false;
       renderGuide();
+    }
+  }
+
+  async function bindFromRepoBranch() {
+    const repo = (els.repoPick?.value || '').trim();
+    const branch = (els.branchPick?.value || 'main').trim() || 'main';
+    const workspaceId = (els.workspaceId?.value || readWorkGuidePrefs().workspaceId || '').trim();
+    const workspaceCapability = (els.workspaceCap?.value || '').trim();
+    const actor = typeof actorId === 'function' ? actorId() : '';
+
+    if (!repo) return toast('Enter a repository as owner/repo');
+    if (!workspaceId) return toast('Workspace must be resolved first (Chat binding or Advanced)');
+    if (!workspaceCapability) return toast('Workspace capability required (session only)');
+    if (!actor) return toast('Actor ID required');
+
+    const parsed = parseRepoPick(repo);
+    if (!parsed) return toast('Repository must look like owner/repo');
+
+    busy(els.repoBranchBindBtn, true, 'Resolving…');
+    if (els.repoBranchNote) {
+      els.repoBranchNote.textContent = `Resolving pins for ${parsed.full}@${branch} server-side…`;
+    }
+    try {
+      const pins = await resolvePinsServerSide(parsed.full, branch);
+      // Mint session id internally — never shown as a default-mode field.
+      const codeSessionId = mintCodeSessionId();
+      const data = await mcpCall('cairnstone_code_session_create', {
+        code_session_id: codeSessionId,
+        workspace_id: workspaceId,
+        created_by: actor,
+        workspace_capability: workspaceCapability,
+        source_repos: pins.sourceRepos,
+        base_commits: pins.baseCommits,
+        working_transport: pins.workingTransport
+      });
+      if (data?.ok === false) throw new Error(data.error || 'create_failed');
+      const createdId = data.code_session_id
+        || data.persistent_code_session?.code_session_id
+        || codeSessionId;
+      applyBoundSession(createdId, { fromDiscovery: false });
+      needsRepoBranchPick = false;
+      if (els.repoBranchNote) {
+        els.repoBranchNote.textContent = `Bound ${parsed.full} @ ${branch} (pins resolved server-side; hash hidden).`;
+      }
+      toast('Code Session bound from repo + branch');
+      await runAutoResolve({ scrollToCode: true });
+      if (!consoleViewKickoffDone && workspaceCapability) {
+        consoleViewKickoffDone = true;
+        els.codeLoad?.click();
+      }
+      softScrollToCodeSession();
+    } catch (err) {
+      if (els.repoBranchNote) {
+        els.repoBranchNote.textContent = err.message || 'Bind failed — fail closed';
+      }
+      toast(err.message || 'Bind Code Session failed — fail closed');
+    } finally {
+      busy(els.repoBranchBindBtn, false, 'Bind Code Session');
     }
   }
 
@@ -451,10 +577,11 @@ export function initWorkGuidePanel(api = {}) {
     if (!workspaceId) return toast('Workspace ID is required');
     if (!cap) return toast('Workspace capability is required (session only; never stoned)');
     writeWorkGuidePrefs({ workspaceId });
+    workspaceHumanMeta.fromPrefs = true;
     try { sessionStorage.setItem('cs.workspaceCapability', cap); } catch { /* ignore */ }
     syncInviteWorkspace(workspaceId);
     toast('Workspace saved for this browser session');
-    if (questionnaireModel(gatherQuestionnaireInput()).allAnswered) void runAutoResolve();
+    if (questionnaireModel(gatherInput()).allAnswered) void runAutoResolve();
     else renderGuide();
   }
 
@@ -494,7 +621,7 @@ export function initWorkGuidePanel(api = {}) {
     if (!options.length) {
       els.codeSelect.innerHTML = '<option value="">No bound Code Sessions found</option>';
       if (els.discoveryNote) {
-        els.discoveryNote.textContent = 'No Conversation Session currently binds a code_session_id for this actor. Create one below, or use Advanced only as an escape hatch.';
+        els.discoveryNote.textContent = 'No Conversation Session currently binds a code_session_id. Prefer default repo + branch bind; Advanced Create is the SHA escape hatch.';
       }
       return;
     }
@@ -532,16 +659,14 @@ export function initWorkGuidePanel(api = {}) {
   function useSelectedCodeSession() {
     const id = (els.codeSelect?.value || '').trim();
     if (!id) return toast('Select a discovered Code Session first');
-    if (els.codeSessionId) els.codeSessionId.value = id;
-    try { sessionStorage.setItem('cs.codeSessionId', id); } catch { /* ignore */ }
-    writeWorkGuidePrefs({ codeSessionFromDiscovery: true });
-    els.codeSessionId?.dispatchEvent(new Event('change'));
-    toast(`Code Session selected via Conversation binding · ${shortId(id)}`);
-    if (questionnaireModel(gatherQuestionnaireInput()).allAnswered) void runAutoResolve();
+    applyBoundSession(id, { fromDiscovery: true });
+    needsRepoBranchPick = false;
+    toast('Code Session selected via Conversation binding');
+    if (questionnaireModel(gatherInput()).allAnswered) void runAutoResolve({ scrollToCode: true });
     else renderGuide();
   }
 
-  async function createCodeSession() {
+  async function createCodeSessionAdvanced() {
     const workspaceId = (els.workspaceId?.value || readWorkGuidePrefs().workspaceId || '').trim();
     const workspaceCapability = (els.workspaceCap?.value || '').trim();
     const actor = typeof actorId === 'function' ? actorId() : '';
@@ -552,7 +677,7 @@ export function initWorkGuidePanel(api = {}) {
     if (!workspaceId) return toast('Workspace ID required');
     if (!workspaceCapability) return toast('Workspace capability required (session only)');
     if (!actor) return toast('Actor ID required');
-    if (!codeSessionId) return toast('New Code Session ID required');
+    if (!codeSessionId) return toast('New Code Session ID required (Advanced)');
     if (!sourceRepos.length) return toast('At least one source repo is required');
     if (!baseCommits.length) return toast('Base commits required as: repo sha');
 
@@ -570,13 +695,11 @@ export function initWorkGuidePanel(api = {}) {
       const createdId = data.code_session_id
         || data.persistent_code_session?.code_session_id
         || codeSessionId;
-      if (els.codeSessionId) els.codeSessionId.value = createdId;
-      try { sessionStorage.setItem('cs.codeSessionId', createdId); } catch { /* ignore */ }
-      writeWorkGuidePrefs({ codeSessionFromDiscovery: true });
-      els.codeSessionId?.dispatchEvent(new Event('change'));
-      toast(`Code Session created · ${shortId(createdId)}`);
+      applyBoundSession(createdId, { fromDiscovery: false });
+      needsRepoBranchPick = false;
+      toast('Code Session created (Advanced)');
       await refreshDiscovery();
-      if (questionnaireModel(gatherQuestionnaireInput()).allAnswered) await runAutoResolve();
+      if (questionnaireModel(gatherInput()).allAnswered) await runAutoResolve({ scrollToCode: true });
       else renderGuide();
     } catch (err) {
       toast(err.message || 'Create Code Session failed — fail closed');
@@ -587,7 +710,7 @@ export function initWorkGuidePanel(api = {}) {
 
   function runPrimaryCta() {
     const action = els.guidePrimaryCta?.dataset.action
-      || questionnaireModel(gatherQuestionnaireInput()).primaryCta.action;
+      || questionnaireModel(gatherInput()).primaryCta.action;
     switch (action) {
       case 'answer_what':
       case 'answer_who':
@@ -602,10 +725,8 @@ export function initWorkGuidePanel(api = {}) {
       case 'add_collaborator':
         return addCollaborator();
       case 'focus_code_session':
-        if (els.advancedShell) els.advancedShell.open = true;
-        els.codeSelect?.focus();
-        return void refreshDiscovery();
-      case 'focus_describe':
+        softScrollToCodeSession();
+        return;
       case 'focus_review':
         els.confirmCard?.classList.remove('hidden');
         els.confirmCard?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -625,6 +746,7 @@ export function initWorkGuidePanel(api = {}) {
     codeSessionLoaded = Boolean(loaded);
     if (loaded) writeWorkGuidePrefs({ codeSessionFromDiscovery: true });
     renderGuide();
+    if (loaded) softScrollToCodeSession();
   }
 
   function markProposalCommitted(done) {
@@ -636,6 +758,9 @@ export function initWorkGuidePanel(api = {}) {
         ...autoResolve,
         ...buildAutoResolveSnapshot({
           workspaceId: (els.workspaceId?.value || readWorkGuidePrefs().workspaceId || '').trim(),
+          conversationTitle: workspaceHumanMeta.conversationTitle,
+          projectName: workspaceHumanMeta.projectName,
+          fromPrefs: workspaceHumanMeta.fromPrefs,
           hasWorkspaceCapability: Boolean((els.workspaceCap?.value || '').trim()),
           codeSession: discoveredSessions[0] || {
             codeSessionId: (els.codeSessionId?.value || '').trim() || null
@@ -644,7 +769,8 @@ export function initWorkGuidePanel(api = {}) {
           baseCommits: discoveredSessions[0]?.baseCommits || [],
           taskRunId,
           proposalReady: true,
-          eventsReady: true
+          eventsReady: true,
+          needsRepoBranchPick: false
         })
       };
       persistAnswers();
@@ -659,7 +785,7 @@ export function initWorkGuidePanel(api = {}) {
         ...autoResolve,
         task_run_events: {
           status: 'resolved',
-          detail: 'Proposal / events surface ready — Human Commit / Dispatch still second-tap',
+          detail: 'Task Run ready — Human Commit / Dispatch still second-tap',
           value: 'proposal_ready'
         }
       };
@@ -676,20 +802,22 @@ export function initWorkGuidePanel(api = {}) {
   els.workspaceSave?.addEventListener('click', saveWorkspace);
   els.workspaceId?.addEventListener('change', () => {
     writeWorkGuidePrefs({ workspaceId: (els.workspaceId.value || '').trim() });
+    workspaceHumanMeta.fromPrefs = true;
     renderGuide();
   });
   els.workspaceCap?.addEventListener('input', () => {
-    if (questionnaireModel(gatherQuestionnaireInput()).allAnswered) void runAutoResolve();
+    if (questionnaireModel(gatherInput()).allAnswered) void runAutoResolve({ scrollToCode: false });
     else renderGuide();
   });
   els.addCollaborator?.addEventListener('click', addCollaborator);
   els.collaboratorContinue?.addEventListener('click', continueAfterCollaborator);
   els.codeRefresh?.addEventListener('click', () => void refreshDiscovery());
   els.codeUse?.addEventListener('click', useSelectedCodeSession);
-  els.createBtn?.addEventListener('click', () => void createCodeSession());
+  els.createBtn?.addEventListener('click', () => void createCodeSessionAdvanced());
+  els.repoBranchBindBtn?.addEventListener('click', () => void bindFromRepoBranch());
   els.guidePrimaryCta?.addEventListener('click', runPrimaryCta);
   els.guideBack?.addEventListener('click', goBack);
-  els.resolveRefresh?.addEventListener('click', () => void runAutoResolve());
+  els.resolveRefresh?.addEventListener('click', () => void runAutoResolve({ scrollToCode: false }));
   els.answerWhat?.addEventListener('input', () => {
     answers = { ...answers, what: (els.answerWhat.value || '').trim() };
     persistAnswers();
@@ -710,15 +838,15 @@ export function initWorkGuidePanel(api = {}) {
   });
   els.intentText?.addEventListener('input', () => {
     if (els.intentText.dataset.fromQuestionnaire === '1') {
-      // User edits leave questionnaire composition; still re-render.
       delete els.intentText.dataset.fromQuestionnaire;
     }
     renderGuide();
   });
   els.dispatchTaskRunId?.addEventListener('input', () => renderGuide());
   els.codeSessionId?.addEventListener('change', () => {
-    // Manual Advanced entry is an escape hatch — not discovery.
-    writeWorkGuidePrefs({ codeSessionFromDiscovery: false });
+    if (!applyingBoundSession) {
+      writeWorkGuidePrefs({ codeSessionFromDiscovery: false });
+    }
     renderGuide();
   });
   els.advancedShell?.addEventListener('toggle', () => renderGuide());
@@ -730,13 +858,8 @@ export function initWorkGuidePanel(api = {}) {
   window.addEventListener('cairn:work-proposal-committed', () => markProposalCommitted(true));
   window.addEventListener('cairn:work-dispatched', () => markDispatched(true));
 
-  // Seed actor chips even before first paint of who-question.
-  if (!SEED_ACTORS.length) {
-    /* directory empty — Advanced custom IDs remain available elsewhere */
-  }
-
   renderGuide();
-  if (questionnaireModel(gatherQuestionnaireInput()).allAnswered) void runAutoResolve();
+  if (questionnaireModel(gatherInput()).allAnswered) void runAutoResolve({ scrollToCode: false });
 
   return {
     refresh: renderGuide,
@@ -746,6 +869,6 @@ export function initWorkGuidePanel(api = {}) {
     markProposalCommitted,
     markProposalReady,
     markDispatched,
-    gatherState: gatherQuestionnaireInput
+    gatherState: gatherInput
   };
 }

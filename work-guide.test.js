@@ -12,12 +12,16 @@ import {
   buildAutoResolveSnapshot,
   codeSessionsFromConversationList,
   composeIntentFromAnswers,
+  extractResolvedCommitSha,
   humanActorOptions,
+  mintCodeSessionId,
+  parseRepoPick,
   questionnaireModel,
   readWorkGuidePrefs,
   redactRawSha,
   summarizePins,
   workGuideModel,
+  workspaceHumanLabel,
   writeWorkGuidePrefs
 } from './work-guide.js';
 
@@ -136,7 +140,63 @@ describe('buildAutoResolveSnapshot', () => {
     assert.equal(snap.workspace.status, 'blocked');
     assert.equal(snap.access_readiness.status, 'blocked');
     assert.equal(snap.code_session.status, 'blocked');
-    assert.match(snap.access_readiness.detail, /second-tap|capability|session/i);
+    assert.match(snap.access_readiness.detail, /second-tap|capability|session|Access readiness/i);
+  });
+
+  it('uses human default labels without truncated ws:/cs:/tr: fragments', () => {
+    const snap = buildAutoResolveSnapshot({
+      workspaceId: 'ws:very-long-workspace-identifier-abcdef',
+      workspaceLabel: 'Console Zero-ID',
+      fromPrefs: true,
+      hasWorkspaceCapability: true,
+      codeSession: {
+        codeSessionId: 'cs:very-long-code-session-identifier',
+        conversationId: 'cvs:chat-1'
+      },
+      sourceRepos: ['nothinginfinity/cairnstone-v6-console'],
+      baseCommits: [{ repo: 'nothinginfinity/cairnstone-v6-console', commit_sha: 'abcdef1234567890abcdef1234567890abcdef12' }],
+      taskRunId: 'tr:very-long-task-run-identifier',
+      proposalReady: true
+    });
+    assert.equal(snap.workspace.detail, 'Workspace ready · Console Zero-ID');
+    assert.doesNotMatch(snap.workspace.detail, /ws:|…/);
+    assert.equal(snap.code_session.detail, 'Code Session bound via Chat');
+    assert.doesNotMatch(snap.code_session.detail, /cs:|cvs:|…/);
+    assert.equal(snap.task_run_events.detail, 'Task Run ready — Human Commit / Dispatch still second-tap');
+    assert.doesNotMatch(snap.task_run_events.detail, /tr:|…/);
+    assert.doesNotMatch(snap.source_repos_base_commits.detail, /abcdef1234567890/);
+  });
+
+  it('asks for default repo+branch pick when no Conversation-bound session', () => {
+    const snap = buildAutoResolveSnapshot({
+      workspaceId: 'ws:demo',
+      hasWorkspaceCapability: true,
+      needsRepoBranchPick: true
+    });
+    assert.equal(snap.code_session.status, 'pending');
+    assert.match(snap.code_session.detail, /repo \+ branch/i);
+    assert.doesNotMatch(snap.code_session.detail, /\bcs:/);
+  });
+});
+
+describe('workspaceHumanLabel + repo pick helpers', () => {
+  it('prefers conversation/project title then Saved workspace', () => {
+    assert.equal(workspaceHumanLabel({ conversationTitle: 'Ops chat' }), 'Ops chat');
+    assert.equal(workspaceHumanLabel({ workspaceId: 'ws:x', fromPrefs: true }), 'Saved workspace');
+    assert.equal(workspaceHumanLabel({}), '');
+  });
+
+  it('parses owner/repo picks and extracts reconcile SHAs without exposing them in UI helpers', () => {
+    assert.deepEqual(parseRepoPick('nothinginfinity/cairnstone-v6-console'), {
+      owner: 'nothinginfinity',
+      repo: 'cairnstone-v6-console',
+      full: 'nothinginfinity/cairnstone-v6-console'
+    });
+    assert.equal(
+      extractResolvedCommitSha({ summary: { resolved_commit_sha: 'abcdef1234567890abcdef1234567890abcdef12' } }),
+      'abcdef1234567890abcdef1234567890abcdef12'
+    );
+    assert.match(mintCodeSessionId(), /^cs:/);
   });
 });
 

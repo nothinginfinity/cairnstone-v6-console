@@ -547,17 +547,32 @@ export function codeSessionsFromConversationList(payload) {
     seen.add(codeSessionId);
     const conversationId = String(row?.conversation_id || row?.id || '').trim();
     const workspaceId = String(row?.workspace_id || row?.bindings?.workspace_id || '').trim();
+    const conversationTitle = String(
+      row?.title
+      || row?.conversation_title
+      || row?.name
+      || row?.bindings?.title
+      || ''
+    ).trim();
+    const projectName = String(
+      row?.project_name
+      || row?.bindings?.project_name
+      || row?.workspace_name
+      || ''
+    ).trim();
     const sourceRepos = extractRepos(row);
     const baseCommits = extractBaseCommits(row);
     out.push({
       codeSessionId,
       conversationId: conversationId || null,
       workspaceId: workspaceId || null,
+      conversationTitle: conversationTitle || null,
+      projectName: projectName || null,
       sourceRepos,
       baseCommits,
-      label: conversationId
-        ? `Bound via conversation · ${shortFriendly(conversationId)}`
-        : `Code Session · ${shortFriendly(codeSessionId)}`,
+      label: conversationTitle
+        ? `Bound via Chat · ${conversationTitle}`
+        : (conversationId ? 'Bound via Chat' : 'Code Session bound'),
       source: 'conversation_session'
     });
   }
@@ -610,19 +625,82 @@ export function summarizePins(sourceRepos = [], baseCommits = []) {
   };
 }
 
-function shortFriendly(id) {
-  const s = String(id || '').trim();
-  if (!s) return '—';
-  if (s.length <= 18) return s;
-  return `${s.slice(0, 8)}…`;
+/** Human workspace label for default mode — never a truncated `ws:` fragment. */
+export function workspaceHumanLabel({
+  workspaceId = '',
+  workspaceLabel = '',
+  conversationTitle = '',
+  projectName = '',
+  fromPrefs = false
+} = {}) {
+  const explicit = String(workspaceLabel || conversationTitle || projectName || '').trim();
+  if (explicit) return explicit;
+  if (workspaceId || fromPrefs) return 'Saved workspace';
+  return '';
+}
+
+/**
+ * Parse a single human repo pick (`owner/repo` or `https://github.com/owner/repo`).
+ * @returns {{ owner: string, repo: string, full: string } | null}
+ */
+export function parseRepoPick(raw) {
+  let s = String(raw || '').trim();
+  if (!s) return null;
+  s = s.replace(/^https?:\/\/github\.com\//i, '').replace(/\.git$/i, '').replace(/\/$/, '');
+  const parts = s.split('/').filter(Boolean);
+  if (parts.length < 2) return null;
+  const owner = parts[0];
+  const repo = parts[1];
+  if (!owner || !repo) return null;
+  return { owner, repo, full: `${owner}/${repo}` };
+}
+
+/** Mint a Code Session ID for create calls — never shown as a default-mode field. */
+export function mintCodeSessionId() {
+  const uuid = (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
+    ? crypto.randomUUID()
+    : `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+  return `cs:${uuid}`;
+}
+
+/**
+ * Extract resolved commit SHA from cairnstone_reconcile_repo (or similar) payloads.
+ * Presentation keeps this off-screen in default mode.
+ */
+export function extractResolvedCommitSha(payload) {
+  if (!payload || typeof payload !== 'object') return '';
+  const candidates = [
+    payload.resolved_commit_sha,
+    payload.resolved_commit,
+    payload.commit_sha,
+    payload.observed_commit_sha,
+    payload.immutable_commit_sha,
+    payload.ref_commit_sha,
+    payload.commit?.sha,
+    payload.resolved?.commit_sha,
+    payload.summary?.resolved_commit_sha,
+    payload.summary?.commit_sha,
+    payload.github?.commit_sha,
+    payload.tree?.commit_sha
+  ];
+  for (const c of candidates) {
+    const sha = String(c || '').trim();
+    if (/^[0-9a-f]{7,40}$/i.test(sha)) return sha.length >= 40 ? sha.slice(0, 40) : sha;
+  }
+  return '';
 }
 
 /**
  * Build the next auto-resolve snapshot from discovery payloads.
  * Presentation only — does not mint grants or dispatch.
+ * Default-mode details never include truncated `ws:` / `cs:` / `tr:` fragments.
  */
 export function buildAutoResolveSnapshot({
   workspaceId = '',
+  workspaceLabel = '',
+  conversationTitle = '',
+  projectName = '',
+  fromPrefs = false,
   hasWorkspaceCapability = false,
   codeSession = null,
   sourceRepos = [],
@@ -630,6 +708,7 @@ export function buildAutoResolveSnapshot({
   taskRunId = '',
   proposalReady = false,
   eventsReady = false,
+  needsRepoBranchPick = false,
   idBundle = {}
 } = {}) {
   const pins = summarizePins(sourceRepos, baseCommits);
@@ -637,40 +716,52 @@ export function buildAutoResolveSnapshot({
     (codeSession?.codeSessionId || idBundle.code_session_id)
     && (workspaceId || idBundle.workspace_id)
   );
+  const humanWorkspace = workspaceHumanLabel({
+    workspaceId,
+    workspaceLabel,
+    conversationTitle: conversationTitle || codeSession?.conversationTitle || '',
+    projectName,
+    fromPrefs
+  });
+  const boundViaChat = Boolean(codeSession?.codeSessionId && codeSession?.conversationId);
   return {
     workspace: workspaceId
       ? {
         status: 'resolved',
-        detail: `Workspace ready · ${shortFriendly(workspaceId)}`,
-        value: workspaceId
+        detail: humanWorkspace && humanWorkspace !== 'Saved workspace'
+          ? `Workspace ready · ${humanWorkspace}`
+          : 'Workspace ready',
+        value: workspaceId,
+        label: humanWorkspace || 'Saved workspace'
       }
       : {
         status: 'blocked',
         detail: 'No workspace bound from Conversation Session or session prefs.',
-        value: null
+        value: null,
+        label: null
       },
     access_readiness: hasWorkspaceCapability
       ? {
         status: 'resolved',
-        detail: 'Session capability present. Grants / Invite remain explicit second-tap.',
+        detail: 'Access readiness OK — grants / Invite remain explicit second-tap.',
         value: 'session_capability'
       }
       : {
         status: 'blocked',
-        detail: 'Workspace capability missing in this browser session (never stoned).',
+        detail: 'Access readiness blocked — workspace capability missing in this browser session (never stoned).',
         value: null
       },
     code_session: codeSession?.codeSessionId
       ? {
         status: 'resolved',
-        detail: codeSession.conversationId
-          ? `Bound via Conversation · ${shortFriendly(codeSession.conversationId)}`
-          : `Code Session bound · ${shortFriendly(codeSession.codeSessionId)}`,
+        detail: boundViaChat ? 'Code Session bound via Chat' : 'Code Session bound',
         value: codeSession.codeSessionId
       }
       : {
-        status: 'blocked',
-        detail: 'Honest discovery found no Conversation-bound Code Session. Use Advanced Create only as escape hatch.',
+        status: needsRepoBranchPick ? 'pending' : 'blocked',
+        detail: needsRepoBranchPick
+          ? 'Pick one repo + branch below — CairnStone resolves pins server-side (no commit hash or session-id field in default).'
+          : 'No Conversation-bound Code Session yet. Pick a repo + branch in default Work, or use Advanced Create (raw SHA / session id) as escape hatch.',
         value: null
       },
     source_repos_base_commits: (sourceRepos.length || baseCommits.length)
@@ -689,7 +780,7 @@ export function buildAutoResolveSnapshot({
     ids: idsResolved
       ? {
         status: 'resolved',
-        detail: 'Operational IDs resolved in session (hidden in default mode).',
+        detail: 'IDs ready (hidden in default mode).',
         value: {
           workspace_id: workspaceId || idBundle.workspace_id || null,
           code_session_id: codeSession?.codeSessionId || idBundle.code_session_id || null,
@@ -706,7 +797,7 @@ export function buildAutoResolveSnapshot({
       ? {
         status: 'resolved',
         detail: taskRunId
-          ? `Task Run ready · ${shortFriendly(taskRunId)} — Human Commit / Dispatch still second-tap`
+          ? 'Task Run ready — Human Commit / Dispatch still second-tap'
           : 'Proposal / events surface ready — Human Commit / Dispatch still second-tap',
         value: taskRunId || 'proposal_ready'
       }
