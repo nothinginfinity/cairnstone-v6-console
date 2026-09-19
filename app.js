@@ -249,8 +249,8 @@ const DEFAULT_PANEL_BY_PRIMARY = {
 
 const e = {
   runtimeUrl: $('runtimeUrl'), actorId: $('actorId'), healthButton: $('healthButton'), healthDot: $('healthDot'), healthText: $('healthText'),
-  contextScopeBtn: $('contextScopeBtn'), contextActorBtn: $('contextActorBtn'), contextSessionBtn: $('contextSessionBtn'), contextChatBtn: $('contextChatBtn'), contextCodeBtn: $('contextCodeBtn'), contextRuntimeBtn: $('contextRuntimeBtn'),
-  contextScopeLabel: $('contextScopeLabel'), contextActorLabel: $('contextActorLabel'), contextSessionLabel: $('contextSessionLabel'), contextChatLabel: $('contextChatLabel'), contextCodeLabel: $('contextCodeLabel'),
+  contextScopeBtn: $('contextScopeBtn'), contextActorBtn: $('contextActorBtn'), contextChatBtn: $('contextChatBtn'), contextCodeBtn: $('contextCodeBtn'), contextRuntimeBtn: $('contextRuntimeBtn'),
+  contextScopeLabel: $('contextScopeLabel'), contextActorLabel: $('contextActorLabel'), contextChatLabel: $('contextChatLabel'), contextCodeLabel: $('contextCodeLabel'),
   inboxSubnav: $('inboxSubnav'), moreSubnav: $('moreSubnav'),
   inboxGroupThreads: $('inboxGroupThreads'),
   scopeSheet: $('scopeSheet'), runtimeSheet: $('runtimeSheet'), chatConfigSheet: $('chatConfigSheet'), evidenceDrawer: $('evidenceDrawer'),
@@ -3282,10 +3282,6 @@ function syncContextBar({ scopePending = false } = {}) {
     const tid = state.chatThreadId || (typeof ensureChatThreadId === 'function' ? ensureChatThreadId() : '');
     e.contextChatLabel.textContent = tid ? short(tid) : '—';
   }
-  if (e.contextSessionLabel) {
-    const tid = state.chatThreadId || (typeof ensureChatThreadId === 'function' ? ensureChatThreadId() : '');
-    e.contextSessionLabel.textContent = tid ? short(tid) : '—';
-  }
   if (e.contextCodeLabel || e.contextCodeBtn) {
     const sid = currentCodeSessionId();
     if (e.contextCodeLabel) e.contextCodeLabel.textContent = sid ? short(sid) : '—';
@@ -3469,7 +3465,6 @@ e.healthButton.addEventListener('click', () => health().catch(() => {}));
 if (e.contextRuntimeBtn) e.contextRuntimeBtn.addEventListener('click', () => openSheet('runtimeSheet'));
 if (e.contextScopeBtn) e.contextScopeBtn.addEventListener('click', () => openSheet('scopeSheet'));
 if (e.contextActorBtn) e.contextActorBtn.addEventListener('click', () => openSheet('runtimeSheet'));
-if (e.contextSessionBtn) e.contextSessionBtn.addEventListener('click', () => panel('code'));
 if (e.contextChatBtn) e.contextChatBtn.addEventListener('click', () => panel('chat'));
 if (e.contextCodeBtn) e.contextCodeBtn.addEventListener('click', () => panel('code'));
 if (e.contextViewsBtn) e.contextViewsBtn.addEventListener('click', () => openSheet('savedViewsSheet'));

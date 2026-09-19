@@ -15,8 +15,9 @@ Later cards stay hidden until prerequisites are ready. Raw IDs live under **Adva
 
 ## Chat vs Code Session
 
-- Context pill **Chat** = Conversation / Chat Session (thread)
-- Context pill **Code** = Code Session (shown when bound)
+- Context pill **Chat** = Conversation / Chat Session (thread) — preferred label; not “Session · model”
+- Context pill **Code** = Code Session (shown only when bound)
+- Legacy **Session** pill is removed (no third session-ish control on mobile)
 
 ## Honest Code Session discovery
 

@@ -55,6 +55,12 @@ test('context bar sync helpers exist without inventing authority APIs', () => {
   assert.match(app, /contextChatLabel/);
   assert.match(app, /contextCodeLabel/);
   assert.match(app, /initWorkGuidePanel/);
+  // Legacy Session pill removed — Chat + Code only (Code hidden until bound).
+  assert.doesNotMatch(html, /id="contextSessionBtn"/);
+  assert.doesNotMatch(html, /id="contextSessionLabel"/);
+  assert.doesNotMatch(html, /class="context-k">Session</);
+  assert.doesNotMatch(app, /contextSessionBtn/);
+  assert.doesNotMatch(app, /contextSessionLabel/);
   assert.match(app, /function openSheet/);
   assert.match(app, /chatConfigSheet/);
   assert.match(app, /evidenceDrawer/);
