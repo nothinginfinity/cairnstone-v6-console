@@ -3000,6 +3000,9 @@ async function routeConsoleIntent() {
     if (e.dispatchHumanCommit) e.dispatchHumanCommit.checked = false;
     if (e.dispatchTaskRunId && !e.dispatchTaskRunId.value) e.dispatchTaskRunId.value = priorDispatchTaskRunId;
     setIntentResult(routed);
+    window.dispatchEvent(new CustomEvent('cairn:work-proposal-ready', {
+      detail: { intent: state.intent.proposalCard?.intent || null, ok: state.intent.proposalCard?.ok !== false }
+    }));
     toast(state.intent.proposalCard.intent === 'none' ? 'No consequential intent matched' : 'Intent routed');
   } catch (err) {
     setIntentResult(err.payload || { ok: false, error: err.message, accepted_state_authority: false });

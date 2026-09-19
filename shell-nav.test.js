@@ -87,6 +87,11 @@ test('Work first paint is task-oriented with progressive disclosure', () => {
   const start = html.indexOf('id="panel-code"');
   const end = html.indexOf('id="panel-invite"');
   const work = html.slice(start, end);
+  assert.match(work, /Zero-ID|work questionnaire|workAnswerWhat/i);
+  assert.match(work, /id="workActorPicker"/);
+  assert.match(work, /id="workActionChoices"/);
+  assert.match(work, /id="workAutoResolveCard"/);
+  assert.match(work, /Advanced · ID-ish steps/);
   assert.match(work, /work-task-hero|Current task/);
   assert.match(work, /id="codeCurrentTask"/);
   assert.match(work, /id="codeEmptyState"/);
@@ -94,6 +99,7 @@ test('Work first paint is task-oriented with progressive disclosure', () => {
   assert.match(work, /id="codeEnvironment"/);
   assert.match(work, /work-details/);
   assert.match(work, /Propose \/ Merge/);
+  assert.match(work, /10h\.4 runtime acceptance/);
   assert.match(codeSession, /workFirstPaintModel|work-surface/);
 });
 

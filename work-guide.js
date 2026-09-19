@@ -1,11 +1,91 @@
 /**
- * V7.7.x — Guided operator Work flow (presentation only).
- * Orders: Choose workspace → Add collaborator → Select/Create Code Session
- * → Describe work → Review / Human Commit → Dispatch / Watch.
+ * V7.7.x — Console Zero-ID questionnaire Work UX (presentation only).
+ *
+ * Product rule: humans answer human questions; CairnStone resolves CairnStone values.
+ * Default Work = 3 questions one-at-a-time (what / who / what should they do),
+ * then auto-resolve workspace, access readiness, Code Session, source_repos/base_commits,
+ * IDs, Task Run + events. The prior 6 ID-ish steps live under Advanced.
+ *
  * Never weakens scoped_grant or accepted-state authority.
+ * Access grant / Human Commit / Dispatch remain explicit second-tap.
+ * No raw SHA in default mode. 10h.4 runtime acceptance stays a separate gate.
  */
 
-export const WORK_GUIDE_STEPS = Object.freeze([
+import { SEED_ACTORS, displayNameForNamespace, parseMailboxId } from './actor-inbox-nav.js';
+
+/** Default Work — human questions only. */
+export const WORK_QUESTIONS = Object.freeze([
+  {
+    id: 'what',
+    number: 1,
+    title: 'What?',
+    prompt: 'What is the work?',
+    hint: 'Describe the outcome in plain language. Do not paste session IDs or commit SHAs.',
+    input: 'text',
+    cta: 'Continue',
+    ctaAction: 'answer_what'
+  },
+  {
+    id: 'who',
+    number: 2,
+    title: 'Who?',
+    prompt: 'Who should do it?',
+    hint: 'Pick a person by name. Exact mailbox IDs stay under Advanced.',
+    input: 'actor',
+    cta: 'Continue',
+    ctaAction: 'answer_who'
+  },
+  {
+    id: 'what_should_they_do',
+    number: 3,
+    title: 'What should they do?',
+    prompt: 'What should they do?',
+    hint: 'Choose the human action. Access grant, Human Commit, and Dispatch still need a second tap.',
+    input: 'action',
+    cta: 'Resolve with CairnStone',
+    ctaAction: 'answer_action'
+  }
+]);
+
+/** CairnStone values resolved after the three human answers (never asked as ID fields). */
+export const WORK_AUTO_RESOLVE_STEPS = Object.freeze([
+  {
+    id: 'workspace',
+    label: 'Workspace',
+    missing: 'No workspace bound yet — resolve from Conversation Session or session prefs.'
+  },
+  {
+    id: 'access_readiness',
+    label: 'Access readiness',
+    missing: 'Workspace capability missing for this browser session (session-only; never stoned).'
+  },
+  {
+    id: 'code_session',
+    label: 'Code Session',
+    missing: 'No Code Session discovered from Conversation bindings yet.'
+  },
+  {
+    id: 'source_repos_base_commits',
+    label: 'Repos & pins',
+    missing: 'Source repos / base pins not yet read from the Code Session record.'
+  },
+  {
+    id: 'ids',
+    label: 'IDs',
+    missing: 'Operational IDs not yet resolved.'
+  },
+  {
+    id: 'task_run_events',
+    label: 'Task Run + events',
+    missing: 'Intent not yet routed into a proposal / events surface.'
+  }
+]);
+
+/**
+ * Advanced escape hatch — prior 6 ID-ish operator steps.
+ * Kept distinct from the default questionnaire.
+ */
+export const WORK_ADVANCED_STEPS = Object.freeze([
   {
     id: 'choose_workspace',
     number: 1,
@@ -56,18 +136,242 @@ export const WORK_GUIDE_STEPS = Object.freeze([
   }
 ]);
 
+/** @deprecated Use WORK_ADVANCED_STEPS — retained for callers/tests that still name the 6-step guide. */
+export const WORK_GUIDE_STEPS = WORK_ADVANCED_STEPS;
+
+/** Suggested actions for question 3 (human verbs, not MCP tool IDs). */
+export const WORK_ACTION_CHOICES = Object.freeze([
+  {
+    id: 'assign',
+    label: 'Assign / ask them to work',
+    intentHint: 'assign'
+  },
+  {
+    id: 'give_access',
+    label: 'Give access',
+    intentHint: 'give-access'
+  },
+  {
+    id: 'forward',
+    label: 'Forward with a note',
+    intentHint: 'forward-with-note'
+  },
+  {
+    id: 'custom',
+    label: 'Something else (plain language)',
+    intentHint: null
+  }
+]);
+
+export const WORK_GUIDE_STORE = Object.freeze({
+  workspaceId: 'cs.workspaceId',
+  collaboratorDone: 'cs.workGuide.collaboratorDone',
+  discoveryBound: 'cs.workGuide.codeSessionFromDiscovery',
+  answers: 'cs.workGuide.questionnaireAnswers',
+  autoResolve: 'cs.workGuide.autoResolve'
+});
+
+const SHA_RE = /\b[0-9a-f]{7,40}\b/gi;
+
+/** Strip / mask raw SHAs for default-mode copy. */
+export function redactRawSha(text) {
+  return String(text || '').replace(SHA_RE, '·pin·');
+}
+
+export function humanActorOptions(extra = []) {
+  const seen = new Set();
+  const out = [];
+  for (const seed of SEED_ACTORS) {
+    const workId = seed.mailboxes?.work || seed.mailboxes?.chat || '';
+    if (!workId || seen.has(seed.key)) continue;
+    seen.add(seed.key);
+    out.push({
+      key: seed.key,
+      display: seed.display,
+      mailboxId: workId,
+      source: 'seed'
+    });
+  }
+  for (const row of extra) {
+    const mailboxId = String(row?.mailboxId || row?.id || row?.raw || '').trim();
+    if (!mailboxId) continue;
+    const parsed = parseMailboxId(mailboxId);
+    const key = String(row?.key || parsed?.namespace || mailboxId).toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({
+      key,
+      display: row?.display || displayNameForNamespace(parsed?.namespace || key),
+      mailboxId,
+      source: row?.source || 'observed'
+    });
+  }
+  return out;
+}
+
+export function composeIntentFromAnswers(answers = {}) {
+  const what = String(answers.what || '').trim();
+  const whoDisplay = String(answers.whoDisplay || answers.who || '').trim();
+  const whoMailbox = String(answers.whoMailboxId || '').trim();
+  const actionLabel = String(answers.actionLabel || answers.what_should_they_do || '').trim();
+  const actionNote = String(answers.actionNote || '').trim();
+  const lines = [];
+  if (what) lines.push(`What: ${what}`);
+  if (whoDisplay || whoMailbox) {
+    lines.push(whoMailbox && whoDisplay
+      ? `Who: ${whoDisplay}`
+      : `Who: ${whoDisplay || whoMailbox}`);
+  }
+  if (actionLabel) lines.push(`What they should do: ${actionLabel}`);
+  if (actionNote) lines.push(actionNote);
+  return lines.join('\n');
+}
+
 /**
  * @param {object} input
- * @param {string} [input.workspaceId]
- * @param {boolean} [input.hasWorkspaceCapability]
- * @param {boolean} [input.collaboratorStepDone]
- * @param {string} [input.codeSessionId]
- * @param {boolean} [input.codeSessionLoaded]
- * @param {boolean} [input.codeSessionFromDiscovery] honest select/create (not raw-only)
- * @param {string} [input.workDescription]
+ * @param {object} [input.answers]
+ * @param {number} [input.questionIndex] 0-based; omit to derive from answers
+ * @param {object} [input.autoResolve] per-step { status, label, detail }
+ * @param {boolean} [input.proposalReady]
  * @param {boolean} [input.proposalCommitted]
- * @param {string} [input.taskRunId]
  * @param {boolean} [input.dispatched]
+ * @param {boolean} [input.advancedOpen]
+ */
+export function questionnaireModel(input = {}) {
+  const answers = input.answers && typeof input.answers === 'object' ? input.answers : {};
+  const answered = {
+    what: Boolean(String(answers.what || '').trim()),
+    who: Boolean(String(answers.whoMailboxId || answers.who || '').trim()),
+    what_should_they_do: Boolean(
+      String(answers.actionId || answers.actionLabel || answers.what_should_they_do || '').trim()
+    )
+  };
+  let questionIndex = Number.isInteger(input.questionIndex)
+    ? input.questionIndex
+    : WORK_QUESTIONS.findIndex((q) => !answered[q.id]);
+  if (questionIndex < 0) questionIndex = WORK_QUESTIONS.length; // all answered
+  if (questionIndex > WORK_QUESTIONS.length) questionIndex = WORK_QUESTIONS.length;
+
+  const allAnswered = WORK_QUESTIONS.every((q) => answered[q.id]);
+  const current = allAnswered ? null : WORK_QUESTIONS[Math.min(questionIndex, WORK_QUESTIONS.length - 1)];
+
+  const autoResolve = normalizeAutoResolve(input.autoResolve);
+  const resolveComplete = WORK_AUTO_RESOLVE_STEPS.every((s) => autoResolve[s.id]?.status === 'resolved');
+  const resolveBlocked = WORK_AUTO_RESOLVE_STEPS.some((s) => autoResolve[s.id]?.status === 'blocked');
+  const proposalReady = Boolean(input.proposalReady);
+  const proposalCommitted = Boolean(input.proposalCommitted);
+  const dispatched = Boolean(input.dispatched);
+
+  let phase = 'questions';
+  if (allAnswered && !resolveComplete && !resolveBlocked) phase = 'resolving';
+  if (allAnswered && (resolveComplete || resolveBlocked || proposalReady)) phase = 'confirm';
+  if (proposalCommitted && !dispatched) phase = 'await_dispatch';
+  if (dispatched) phase = 'watch';
+
+  const primaryCta = (() => {
+    if (!allAnswered && current) {
+      return { label: current.cta, action: current.ctaAction };
+    }
+    if (phase === 'resolving') {
+      return { label: 'Resolving…', action: 'noop_resolving' };
+    }
+    if (phase === 'confirm' && !proposalCommitted) {
+      return { label: 'Review · Human Commit', action: 'focus_review' };
+    }
+    if (phase === 'await_dispatch') {
+      return { label: 'Dispatch · second tap', action: 'focus_dispatch' };
+    }
+    if (phase === 'watch') {
+      return { label: 'Watch events', action: 'focus_dispatch' };
+    }
+    return { label: 'Resolve with CairnStone', action: 'run_auto_resolve' };
+  })();
+
+  return {
+    mode: 'zero_id_questionnaire',
+    questions: WORK_QUESTIONS,
+    currentQuestionId: current?.id || null,
+    questionIndex: allAnswered ? WORK_QUESTIONS.length : (current?.number || 1) - 1,
+    questionNumber: current?.number || WORK_QUESTIONS.length,
+    questionCount: WORK_QUESTIONS.length,
+    title: allAnswered
+      ? (phase === 'watch' ? 'Work ready' : 'CairnStone resolving')
+      : `Question ${current.number} of ${WORK_QUESTIONS.length}`,
+    subtitle: allAnswered
+      ? (phase === 'confirm'
+        ? 'Human answers captured. Review the proposal — Human Commit and Dispatch stay explicit second taps.'
+        : phase === 'resolving'
+          ? 'Resolving workspace, access readiness, Code Session, pins, IDs, and Task Run surface…'
+          : 'Watch Events / Agent Tree. Retention and 10h.4 runtime acceptance stay separate.')
+      : current.prompt,
+    hint: current?.hint || '',
+    answers,
+    answered,
+    allAnswered,
+    phase,
+    autoResolve,
+    autoResolveSteps: WORK_AUTO_RESOLVE_STEPS,
+    resolveComplete,
+    resolveBlocked,
+    primaryCta,
+    actionChoices: WORK_ACTION_CHOICES,
+    actorOptions: humanActorOptions(input.extraActors),
+    visibility: {
+      questionnaire: true,
+      autoResolve: allAnswered,
+      confirm: allAnswered && (proposalReady || resolveComplete || resolveBlocked),
+      advanced: true,
+      // Advanced ID panels stay available but default Work does not force them open.
+      workspace: Boolean(input.advancedOpen),
+      collaborator: Boolean(input.advancedOpen),
+      codeSession: Boolean(input.advancedOpen) || Boolean(autoResolve.code_session?.status === 'resolved'),
+      describe: allAnswered,
+      review: allAnswered,
+      dispatch: allAnswered && (proposalCommitted || dispatched || Boolean(input.taskRunId)),
+      events: allAnswered && (proposalReady || resolveComplete || Boolean(input.taskRunId)),
+      retention: allAnswered && (proposalReady || resolveComplete),
+      runtimeSurface: Boolean(input.codeSessionLoaded),
+      advancedIds: true
+    },
+    flags: {
+      allAnswered,
+      resolveComplete,
+      proposalReady,
+      proposalCommitted,
+      dispatched,
+      acceptedStateAuthority: false,
+      scopedGrantUnchanged: true,
+      autoMutated: false,
+      autoDispatched: false,
+      rawShaHidden: true,
+      tenH4Distinct: true
+    },
+    intentText: composeIntentFromAnswers(answers)
+  };
+}
+
+function normalizeAutoResolve(raw) {
+  const src = raw && typeof raw === 'object' ? raw : {};
+  const out = {};
+  for (const step of WORK_AUTO_RESOLVE_STEPS) {
+    const row = src[step.id] || {};
+    const status = ['pending', 'resolving', 'resolved', 'blocked', 'skipped'].includes(row.status)
+      ? row.status
+      : 'pending';
+    out[step.id] = {
+      id: step.id,
+      label: step.label,
+      status,
+      detail: redactRawSha(row.detail || (status === 'pending' ? step.missing : '')),
+      value: row.value == null ? null : row.value
+    };
+  }
+  return out;
+}
+
+/**
+ * Legacy 6-step guide model — still used when Advanced is driving visibility.
+ * Default Work uses questionnaireModel instead.
  */
 export function workGuideModel(input = {}) {
   const workspaceId = String(input.workspaceId || '').trim();
@@ -96,30 +400,30 @@ export function workGuideModel(input = {}) {
     dispatch_watch: dispatchReady
   };
 
-  let current = WORK_GUIDE_STEPS[0];
-  for (const step of WORK_GUIDE_STEPS) {
+  let current = WORK_ADVANCED_STEPS[0];
+  for (const step of WORK_ADVANCED_STEPS) {
     current = step;
     if (!readiness[step.id]) break;
   }
-  if (WORK_GUIDE_STEPS.every(s => readiness[s.id])) {
-    current = WORK_GUIDE_STEPS[WORK_GUIDE_STEPS.length - 1];
+  if (WORK_ADVANCED_STEPS.every(s => readiness[s.id])) {
+    current = WORK_ADVANCED_STEPS[WORK_ADVANCED_STEPS.length - 1];
   }
 
   const ready = [];
   const missing = [];
-  for (const step of WORK_GUIDE_STEPS) {
+  for (const step of WORK_ADVANCED_STEPS) {
     if (readiness[step.id]) ready.push(step.title);
     else missing.push(step.missing);
   }
 
-  const allDone = WORK_GUIDE_STEPS.every(s => readiness[s.id]);
+  const allDone = WORK_ADVANCED_STEPS.every(s => readiness[s.id]);
 
   return {
-    steps: WORK_GUIDE_STEPS,
+    steps: WORK_ADVANCED_STEPS,
     currentStepId: current.id,
     stepNumber: current.number,
-    stepCount: WORK_GUIDE_STEPS.length,
-    title: allDone ? 'Work flow ready' : `Step ${current.number} of ${WORK_GUIDE_STEPS.length}`,
+    stepCount: WORK_ADVANCED_STEPS.length,
+    title: allDone ? 'Work flow ready' : `Step ${current.number} of ${WORK_ADVANCED_STEPS.length}`,
     subtitle: allDone
       ? 'Workspace, Code Session, proposal, and dispatch path are in place. Events / Retention are diagnostics.'
       : current.title,
@@ -155,22 +459,23 @@ export function workGuideModel(input = {}) {
   };
 }
 
-/** sessionStorage keys for guide presentation prefs (never capabilities). */
-export const WORK_GUIDE_STORE = Object.freeze({
-  workspaceId: 'cs.workspaceId',
-  collaboratorDone: 'cs.workGuide.collaboratorDone',
-  discoveryBound: 'cs.workGuide.codeSessionFromDiscovery'
-});
-
 export function readWorkGuidePrefs(storage = sessionStorage) {
   try {
     return {
       workspaceId: String(storage.getItem(WORK_GUIDE_STORE.workspaceId) || '').trim(),
       collaboratorStepDone: storage.getItem(WORK_GUIDE_STORE.collaboratorDone) === '1',
-      codeSessionFromDiscovery: storage.getItem(WORK_GUIDE_STORE.discoveryBound) === '1'
+      codeSessionFromDiscovery: storage.getItem(WORK_GUIDE_STORE.discoveryBound) === '1',
+      answers: readJson(storage, WORK_GUIDE_STORE.answers, {}),
+      autoResolve: readJson(storage, WORK_GUIDE_STORE.autoResolve, {})
     };
   } catch {
-    return { workspaceId: '', collaboratorStepDone: false, codeSessionFromDiscovery: false };
+    return {
+      workspaceId: '',
+      collaboratorStepDone: false,
+      codeSessionFromDiscovery: false,
+      answers: {},
+      autoResolve: {}
+    };
   }
 }
 
@@ -189,8 +494,33 @@ export function writeWorkGuidePrefs(partial = {}, storage = sessionStorage) {
       if (partial.codeSessionFromDiscovery) storage.setItem(WORK_GUIDE_STORE.discoveryBound, '1');
       else storage.removeItem(WORK_GUIDE_STORE.discoveryBound);
     }
+    if ('answers' in partial) {
+      writeJson(storage, WORK_GUIDE_STORE.answers, partial.answers || {});
+    }
+    if ('autoResolve' in partial) {
+      writeJson(storage, WORK_GUIDE_STORE.autoResolve, partial.autoResolve || {});
+    }
   } catch {
     /* ignore quota / private mode */
+  }
+}
+
+function readJson(storage, key, fallback) {
+  try {
+    const raw = storage.getItem(key);
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeJson(storage, key, value) {
+  try {
+    storage.setItem(key, JSON.stringify(value || {}));
+  } catch {
+    /* ignore */
   }
 }
 
@@ -217,15 +547,173 @@ export function codeSessionsFromConversationList(payload) {
     seen.add(codeSessionId);
     const conversationId = String(row?.conversation_id || row?.id || '').trim();
     const workspaceId = String(row?.workspace_id || row?.bindings?.workspace_id || '').trim();
+    const sourceRepos = extractRepos(row);
+    const baseCommits = extractBaseCommits(row);
     out.push({
       codeSessionId,
       conversationId: conversationId || null,
       workspaceId: workspaceId || null,
+      sourceRepos,
+      baseCommits,
       label: conversationId
-        ? `${codeSessionId} · via ${conversationId}`
-        : codeSessionId,
+        ? `Bound via conversation · ${shortFriendly(conversationId)}`
+        : `Code Session · ${shortFriendly(codeSessionId)}`,
       source: 'conversation_session'
     });
   }
   return out;
+}
+
+function extractRepos(row) {
+  const raw = row?.source_repos
+    || row?.bindings?.source_repos
+    || row?.code_session?.source_repos
+    || [];
+  return Array.isArray(raw) ? raw.map((r) => String(r || '').trim()).filter(Boolean) : [];
+}
+
+function extractBaseCommits(row) {
+  const raw = row?.base_commits
+    || row?.bindings?.base_commits
+    || row?.code_session?.base_commits
+    || [];
+  if (!Array.isArray(raw)) return [];
+  return raw.map((entry) => {
+    if (!entry || typeof entry !== 'object') return null;
+    const repo = String(entry.repo || entry.repository || '').trim();
+    const sha = String(entry.commit_sha || entry.sha || entry.base_commit_sha || '').trim();
+    if (!repo) return null;
+    return { repo, commit_sha: sha || null };
+  }).filter(Boolean);
+}
+
+/** Friendly pin summary — never exposes raw SHA in default mode. */
+export function summarizePins(sourceRepos = [], baseCommits = []) {
+  const repos = Array.isArray(sourceRepos) ? sourceRepos.filter(Boolean) : [];
+  const pins = Array.isArray(baseCommits) ? baseCommits.filter((p) => p?.repo) : [];
+  if (!repos.length && !pins.length) {
+    return { label: 'No repos resolved yet', detail: '', hasSha: false };
+  }
+  const repoLabel = repos.length
+    ? `${repos.length} repo${repos.length === 1 ? '' : 's'}: ${repos.slice(0, 3).join(', ')}${repos.length > 3 ? '…' : ''}`
+    : `${pins.length} pinned repo${pins.length === 1 ? '' : 's'}`;
+  const pinLabel = pins.length
+    ? `${pins.length} base pin${pins.length === 1 ? '' : 's'} (SHA hidden)`
+    : 'No base pins reported';
+  return {
+    label: repoLabel,
+    detail: pinLabel,
+    hasSha: pins.some((p) => Boolean(p.commit_sha)),
+    repos,
+    // Default consumers must not render commit_sha; Advanced may.
+    pinsForAdvanced: pins
+  };
+}
+
+function shortFriendly(id) {
+  const s = String(id || '').trim();
+  if (!s) return '—';
+  if (s.length <= 18) return s;
+  return `${s.slice(0, 8)}…`;
+}
+
+/**
+ * Build the next auto-resolve snapshot from discovery payloads.
+ * Presentation only — does not mint grants or dispatch.
+ */
+export function buildAutoResolveSnapshot({
+  workspaceId = '',
+  hasWorkspaceCapability = false,
+  codeSession = null,
+  sourceRepos = [],
+  baseCommits = [],
+  taskRunId = '',
+  proposalReady = false,
+  eventsReady = false,
+  idBundle = {}
+} = {}) {
+  const pins = summarizePins(sourceRepos, baseCommits);
+  const idsResolved = Boolean(
+    (codeSession?.codeSessionId || idBundle.code_session_id)
+    && (workspaceId || idBundle.workspace_id)
+  );
+  return {
+    workspace: workspaceId
+      ? {
+        status: 'resolved',
+        detail: `Workspace ready · ${shortFriendly(workspaceId)}`,
+        value: workspaceId
+      }
+      : {
+        status: 'blocked',
+        detail: 'No workspace bound from Conversation Session or session prefs.',
+        value: null
+      },
+    access_readiness: hasWorkspaceCapability
+      ? {
+        status: 'resolved',
+        detail: 'Session capability present. Grants / Invite remain explicit second-tap.',
+        value: 'session_capability'
+      }
+      : {
+        status: 'blocked',
+        detail: 'Workspace capability missing in this browser session (never stoned).',
+        value: null
+      },
+    code_session: codeSession?.codeSessionId
+      ? {
+        status: 'resolved',
+        detail: codeSession.conversationId
+          ? `Bound via Conversation · ${shortFriendly(codeSession.conversationId)}`
+          : `Code Session bound · ${shortFriendly(codeSession.codeSessionId)}`,
+        value: codeSession.codeSessionId
+      }
+      : {
+        status: 'blocked',
+        detail: 'Honest discovery found no Conversation-bound Code Session. Use Advanced Create only as escape hatch.',
+        value: null
+      },
+    source_repos_base_commits: (sourceRepos.length || baseCommits.length)
+      ? {
+        status: 'resolved',
+        detail: `${pins.label} · ${pins.detail}`,
+        value: { repos: pins.repos, pinCount: baseCommits.length }
+      }
+      : {
+        status: codeSession?.codeSessionId ? 'blocked' : 'pending',
+        detail: codeSession?.codeSessionId
+          ? 'Code Session bound but repos/pins not reported yet.'
+          : 'Waiting on Code Session before reading repos/pins.',
+        value: null
+      },
+    ids: idsResolved
+      ? {
+        status: 'resolved',
+        detail: 'Operational IDs resolved in session (hidden in default mode).',
+        value: {
+          workspace_id: workspaceId || idBundle.workspace_id || null,
+          code_session_id: codeSession?.codeSessionId || idBundle.code_session_id || null,
+          conversation_id: codeSession?.conversationId || idBundle.conversation_id || null,
+          task_run_id: taskRunId || idBundle.task_run_id || null
+        }
+      }
+      : {
+        status: 'pending',
+        detail: 'IDs resolve after workspace + Code Session bind.',
+        value: null
+      },
+    task_run_events: (proposalReady || taskRunId || eventsReady)
+      ? {
+        status: 'resolved',
+        detail: taskRunId
+          ? `Task Run ready · ${shortFriendly(taskRunId)} — Human Commit / Dispatch still second-tap`
+          : 'Proposal / events surface ready — Human Commit / Dispatch still second-tap',
+        value: taskRunId || 'proposal_ready'
+      }
+      : {
+        status: 'pending',
+        detail: 'Route intent after answers; never auto-dispatch.',
+        value: null
+      }
+  };
 }
