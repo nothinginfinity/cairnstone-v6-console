@@ -88,6 +88,17 @@ test('Work first paint is task-oriented with progressive disclosure', () => {
   const end = html.indexOf('id="panel-invite"');
   const work = html.slice(start, end);
   assert.match(work, /Zero-ID|work questionnaire|workAnswerWhat/i);
+  assert.match(work, /id="workCodeSessionCard"|id="workRepoBranchPick"/);
+  assert.match(work, /id="codeSurface"/);
+  assert.match(work, /id="workAdvancedShell"/);
+  // Code Session surface must live outside Advanced
+  const codePos = work.indexOf('id="codeSurface"');
+  const advPos = work.indexOf('id="workAdvancedShell"');
+  assert.ok(codePos >= 0 && advPos >= 0 && codePos < advPos);
+  // Default confirm must not expose dispatchTaskRunId; Advanced may
+  const confirm = work.slice(work.indexOf('id="workConfirmCard"'), work.indexOf('id="workCodeSessionCard"'));
+  assert.doesNotMatch(confirm, /id="dispatchTaskRunId"/);
+  assert.match(work, /id="dispatchTaskRunId"/);
   assert.match(work, /id="workActorPicker"/);
   assert.match(work, /id="workActionChoices"/);
   assert.match(work, /id="workAutoResolveCard"/);

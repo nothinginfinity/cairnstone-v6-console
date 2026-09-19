@@ -369,5 +369,7 @@ html.cs-reduced-motion .universe-node.active,html.cs-reduced-motion .universe-no
 .work-discovery{display:grid;gap:10px;margin-bottom:12px}
 .work-create-details,.work-advanced{margin:12px 0;padding:10px 12px;border:1px dashed var(--line);border-radius:12px;background:rgba(255,255,255,.02)}
 .work-create-details>summary,.work-advanced>summary{cursor:pointer;font-weight:750}
-.work-stage.hidden,.work-step-card.hidden,.work-question.hidden,.work-resolve-card.hidden,.work-confirm-card.hidden{display:none!important}
+.work-stage.hidden,.work-step-card.hidden,.work-question.hidden,.work-resolve-card.hidden,.work-confirm-card.hidden,.work-code-card.hidden,.work-repo-branch-pick.hidden{display:none!important}
+.work-code-card{margin-top:12px}
+.work-repo-branch-pick{margin:12px 0;padding:12px;border:1px solid var(--line);border-radius:12px;background:var(--surface2);display:grid;gap:10px}
 .context-pill.hidden{display:none!important}
