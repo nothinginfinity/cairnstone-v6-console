@@ -399,7 +399,12 @@ export function initWorkGuidePanel(api = {}) {
       && Boolean(answers.accessTargetId)
       && !needsAccessTargetPick;
     els.accessConfirm.classList.toggle('hidden', !show);
-    if (!show) return;
+    if (!show) {
+      // Clear Path A gate so assign/forward/custom are not left stuck disabled.
+      if (els.intentHumanCommit) els.intentHumanCommit.disabled = false;
+      if (els.intentCommitProposal) els.intentCommitProposal.disabled = false;
+      return;
+    }
     const target = accessTargetChoices.find((c) => c.id === answers.accessTargetId);
     const targetLabel = target?.label
       || answers.accessTargetLabel
@@ -421,11 +426,11 @@ export function initWorkGuidePanel(api = {}) {
     }
     if (els.intentCommitProposal) {
       // app.js also gates on checkbox; keep disabled until confirm when visible
-      if (!accessConfirmAccepted) els.intentCommitProposal.disabled = true;
+      els.intentCommitProposal.disabled = !accessConfirmAccepted;
     }
   }
 
-function renderAccessTargetChoices() {
+  function renderAccessTargetChoices() {
     if (!els.accessTargetChoices) return;
     const selected = String(answers.accessTargetId || '').trim();
     if (!accessTargetChoices.length) {
