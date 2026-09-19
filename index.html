@@ -38,7 +38,16 @@
             <span class="context-k">Actor</span>
             <span id="contextActorLabel" class="context-v">console:jared</span>
           </button>
-          <button id="contextSessionBtn" class="context-pill" type="button" title="Open Work / Code Session">
+          <button id="contextChatBtn" class="context-pill" type="button" title="Open Chat / Conversation Session">
+            <span class="context-k">Chat</span>
+            <span id="contextChatLabel" class="context-v">—</span>
+          </button>
+          <button id="contextCodeBtn" class="context-pill hidden" type="button" title="Open Work / Code Session">
+            <span class="context-k">Code</span>
+            <span id="contextCodeLabel" class="context-v">—</span>
+          </button>
+          <!-- legacy alias kept for older tests/scripts -->
+          <button id="contextSessionBtn" class="context-pill visually-hidden" type="button" tabindex="-1" aria-hidden="true" title="Open Work / Code Session">
             <span class="context-k">Session</span>
             <span id="contextSessionLabel" class="context-v">—</span>
           </button>
@@ -307,19 +316,83 @@
         </div>
       </section>
       <section id="panel-code" class="panel">
-        <div class="card code-session-card work-surface-card">
+        <div class="card work-guide-card" id="workGuideCard">
           <div class="section-heading">
-            <div><div class="eyebrow">Work · Persistent Code Mode</div><h2>Code Session</h2></div>
-            <button id="codeLoad" class="secondary" type="button">Load console view</button>
+            <div>
+              <div class="eyebrow">Guided operator · Work</div>
+              <h2 id="workGuideTitle">Step 1 of 6</h2>
+            </div>
+            <span id="workGuideStepPill" class="work-pill">Choose workspace</span>
           </div>
-          <p id="codeHonesty" class="muted small">Work is the home for one Code Session (not a model chat). Workspace capability stays in this browser session only — never stoned. Console grants no new authority.</p>
-          <div class="work-bind">
-            <label><span>Code Session ID</span><input id="codeSessionId" autocomplete="off" placeholder="cs:…"></label>
-            <label><span>Workspace capability</span><input id="codeWorkspaceCap" type="password" autocomplete="off" placeholder="workspace capability (sessionStorage only)"></label>
+          <p id="workGuideSubtitle" class="muted small">Mobile Work is gated by order-of-operations. One recommended next action at a time.</p>
+          <ul id="workGuideMissing" class="work-guide-missing muted small"></ul>
+          <div class="invite-actions">
+            <button id="workGuidePrimaryCta" class="primary" type="button">Save workspace</button>
           </div>
+          <p class="muted small work-guide-note">Add collaborator = workspace invite. Share reference = access grant. Raw IDs live under Advanced. Capability stays session-only — never stoned.</p>
+        </div>
+
+        <div class="card work-step-card" id="workStepWorkspace" data-work-step="choose_workspace">
+          <div class="section-heading">
+            <div><div class="eyebrow">Step 1</div><h2>Choose workspace</h2></div>
+          </div>
+          <p class="muted small">Pick the Shared Agent Workspace this Work run uses. Capability is session-only secure storage — never persisted to Saved Views or stones.</p>
+          <label><span>Workspace ID</span><input id="workWorkspaceId" autocomplete="off" placeholder="ws:…"></label>
+          <label><span>Workspace capability</span><input id="codeWorkspaceCap" type="password" autocomplete="off" placeholder="workspace capability (sessionStorage only)"></label>
+          <div class="invite-actions">
+            <button id="workWorkspaceSave" class="primary compact-button" type="button">Save workspace</button>
+          </div>
+        </div>
+
+        <div class="card work-step-card hidden" id="workStepCollaborator" data-work-step="add_collaborator">
+          <div class="section-heading">
+            <div><div class="eyebrow">Step 2</div><h2>Add collaborator</h2></div>
+          </div>
+          <p class="muted small"><strong>Add collaborator</strong> mints a workspace invite (Invite plane). That is not <strong>Share reference</strong> (access grant over a typed object ref).</p>
+          <div class="invite-actions">
+            <button id="workAddCollaboratorBtn" class="primary compact-button" type="button">Add collaborator</button>
+            <button id="workCollaboratorContinueBtn" class="secondary" type="button">Continue</button>
+          </div>
+        </div>
+
+        <div class="card work-step-card hidden" id="workStepCodeSession" data-work-step="code_session">
+          <div class="section-heading">
+            <div><div class="eyebrow">Step 3</div><h2>Code Session</h2></div>
+            <button id="workCodeSessionRefreshBtn" class="secondary" type="button">Refresh discovery</button>
+          </div>
+          <p id="codeHonesty" class="muted small">Code Session ≠ Chat / Conversation Session. Discovery uses Conversation Session bindings (honest). There is no fake raw-ID-only select.</p>
+          <div id="workCodeSessionDiscovery" class="work-discovery">
+            <label><span>Bound Code Sessions (from Conversation Sessions)</span>
+              <select id="workCodeSessionSelect">
+                <option value="">Loading honest options…</option>
+              </select>
+            </label>
+            <p id="workCodeSessionDiscoveryNote" class="muted small">Empty until a Conversation Session binds a code_session_id, or you create one below.</p>
+            <div class="invite-actions">
+              <button id="workCodeSessionUseBtn" class="primary compact-button" type="button">Use selected</button>
+              <button id="codeLoad" class="secondary" type="button">Load console view</button>
+            </div>
+          </div>
+          <details class="work-create-details" id="workCodeSessionCreateDetails">
+            <summary>Create Code Session</summary>
+            <p class="muted small">Calls <code>cairnstone_code_session_create</code> with required worker fields. Console does not invent repos or base commits.</p>
+            <label><span>New Code Session ID</span><input id="workCodeSessionCreateId" autocomplete="off" placeholder="cs:…"></label>
+            <label><span>Source repos <small>(one per line)</small></span><textarea id="workCodeSessionCreateRepos" rows="2" placeholder="owner/repo"></textarea></label>
+            <label><span>Base commits <small>(repo sha — one per line)</small></span><textarea id="workCodeSessionCreateCommits" rows="2" placeholder="owner/repo abcdef…"></textarea></label>
+            <div class="invite-actions">
+              <button id="workCodeSessionCreateBtn" class="primary compact-button" type="button">Create Code Session</button>
+            </div>
+          </details>
+          <details class="work-advanced" id="workAdvancedIds">
+            <summary>Advanced · raw IDs</summary>
+            <p class="muted small">Manual ID entry is an escape hatch, not discovery. Prefer bound Conversation Sessions or Create above.</p>
+            <div class="work-bind">
+              <label><span>Code Session ID</span><input id="codeSessionId" autocomplete="off" placeholder="cs:…"></label>
+            </div>
+          </details>
           <div id="codeEmptyState" class="work-empty-state" aria-live="polite">
             <strong>No Code Session loaded</strong>
-            <p class="muted small">Enter a Code Session ID and workspace capability, then load the console view. First paint centers the current task; details expand in place. Runtime identity stays on the worker.</p>
+            <p class="muted small">Select a bound Code Session or create one, then load the console view. Runtime identity stays on the worker.</p>
           </div>
           <div id="codeSurface" class="code-surface hidden">
             <div class="work-task-hero" aria-label="Current task">
@@ -387,17 +460,19 @@
             </div>
           </div>
         </div>
+
         <div id="codeDetail" class="card hidden">
           <div class="eyebrow">Detail</div>
           <h2 id="codeDetailTitle">—</h2>
           <pre id="codeDetailBody" class="code-block wrap"></pre>
         </div>
-        <div class="card">
+
+        <div class="card work-stage hidden" id="workStageIntent" data-work-stage="describe">
           <div class="section-heading">
-            <div><div class="eyebrow">V7.7.10e · Work proposal gate</div><h2>Intent / Dispatch</h2></div>
+            <div><div class="eyebrow">Steps 4–6 · V7.7.10e Work proposal gate</div><h2>Describe · Review · Dispatch</h2></div>
           </div>
           <p class="muted small">Route consequential work intent first. Assign creates a Task Run proposal only; dispatch is a second Human Commit. Presentation never calls <code>set_head</code> / <code>set_path_head</code>.</p>
-          <label><span>Intent text</span><textarea id="intentText" rows="4" placeholder="Assign this Code Session task, give access, revoke, or forward with note…"></textarea></label>
+          <label><span>Describe work / intent text</span><textarea id="intentText" rows="4" placeholder="Assign this Code Session task, give access, revoke, or forward with note…"></textarea></label>
           <div class="invite-actions">
             <button id="intentRouteButton" class="secondary" type="button">Route intent</button>
           </div>
@@ -417,11 +492,12 @@
           </div>
           <pre id="intentResult" class="code-block wrap">No intent routed yet.</pre>
         </div>
-        <div class="card" data-cairn-target="work.events">
+
+        <div class="card work-stage hidden" id="workStageEvents" data-cairn-target="work.events" data-work-stage="events">
           <div class="section-heading">
             <div><div class="eyebrow">V7.7.10f · Worker event-plane poll</div><h2>Events / Agent Tree</h2></div>
           </div>
-          <p class="muted small">Poll-only view for worker event-plane projection. Uses the current Actor ID context. Presentation never invents events, never claims live WebSocket transport, and never moves HEADs.</p>
+          <p class="muted small">Diagnostics after Code Session readiness. Poll-only view for worker event-plane projection. Presentation never invents events, never claims live WebSocket transport, and never moves HEADs.</p>
           <label><span>Task Run ID <small>(optional root / filter)</small></span><input id="eventTaskRunId" autocomplete="off" placeholder="tr:…"></label>
           <div class="invite-actions">
             <button id="eventPollButton" class="secondary" type="button">Poll events</button>
@@ -429,18 +505,19 @@
           </div>
           <pre id="eventResult" class="code-block wrap">No event-plane result yet.</pre>
         </div>
-        <div class="card" data-cairn-target="work.retention">
+
+        <div class="card work-stage hidden" id="workStageRetention" data-cairn-target="work.retention" data-work-stage="retention">
           <div class="section-heading">
             <div><div class="eyebrow">V7.7.10g</div><h2>Retention preview</h2></div>
           </div>
-          <p class="muted small">Preview-only retention card for worker context retention decisions. Fail-closed if the worker tool is unavailable. Presentation never invents PIN/DROP decisions and never writes HEAD state.</p>
+          <p class="muted small">Diagnostic after session readiness. Preview-only retention card. Fail-closed if the worker tool is unavailable. Presentation never invents PIN/DROP decisions and never writes HEAD state. <strong>10h.4 runtime acceptance stays separate from this UX slice.</strong></p>
           <div class="invite-actions">
             <button id="retentionPreviewButton" class="secondary" type="button">Preview retention</button>
           </div>
           <pre id="retentionResult" class="code-block wrap" aria-live="polite">No retention preview result yet.</pre>
         </div>
       </section>
-      <section id="panel-invite" class="panel">
+<section id="panel-invite" class="panel">
         <div class="card invite-card">
           <div class="section-heading">
             <div><div class="eyebrow">V7.7.6b trusted-human mint</div><h2>Invite to Workspace</h2></div>

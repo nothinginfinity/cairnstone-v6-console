@@ -216,6 +216,7 @@ export function initCodeSessionPanel(api) {
       if (els.detail) els.detail.classList.add('hidden');
       if (els.proposeForm) els.proposeForm.classList.add('hidden');
       toast('Code Session view loaded');
+      window.dispatchEvent(new CustomEvent('cairn:work-code-session-loaded', { detail: { ok: true } }));
     } catch (err) {
       renderSurface(null, { error: err });
       showDetail('Load failed', err.payload || { error: err.message });
