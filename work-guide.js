@@ -351,12 +351,22 @@ export function questionnaireModel(input = {}) {
 }
 
 
-/** Steps give_access must not wait on — terminal as skipped when that intent is chosen. */
+/**
+ * Steps lightweight intents (give_access / forward) must not wait on —
+ * terminal as skipped unless an access target explicitly selects a Code Session.
+ */
 export const GIVE_ACCESS_SKIP_STEP_IDS = Object.freeze([
   'code_session',
   'source_repos_base_commits',
   'task_run_events'
 ]);
+
+/** Intents that skip Code Session / pins / Task Run by default (assign stays full path). */
+export const LIGHTWEIGHT_RESOLVE_ACTION_IDS = Object.freeze(['give_access', 'forward']);
+
+export function isLightweightResolveAction(actionId = '') {
+  return LIGHTWEIGHT_RESOLVE_ACTION_IDS.includes(String(actionId || '').trim());
+}
 
 /** Statuses that end a resolve row (no spinner). */
 export function isTerminalResolveStatus(status) {
@@ -369,7 +379,7 @@ export function isTerminalResolveStatus(status) {
  */
 export function requiredAutoResolveStepIds(actionId = '') {
   const action = String(actionId || '').trim();
-  if (action === 'give_access') {
+  if (isLightweightResolveAction(action)) {
     return WORK_AUTO_RESOLVE_STEPS
       .map((s) => s.id)
       .filter((id) => !GIVE_ACCESS_SKIP_STEP_IDS.includes(id));
@@ -398,49 +408,70 @@ export function computeResolveCompletion(autoResolve = {}, actionId = '') {
  */
 export function accessTargetChoicesFromDiscovery({
   sessions = [],
+  conversationRefs = [],
   workspaceId = '',
   conversationTitle = '',
   projectName = ''
 } = {}) {
   const choices = [];
   const seen = new Set();
-  const ws = String(workspaceId || '').trim();
-  if (ws) {
-    seen.add(`ws:${ws}`);
-    const label = String(conversationTitle || projectName || '').trim();
+  const pushWorkspace = (ws, label) => {
+    const id = String(ws || '').trim();
+    if (!id || seen.has(`ws:${id}`)) return;
+    seen.add(`ws:${id}`);
+    const human = String(label || '').trim();
     choices.push({
-      id: `workspace:${ws}`,
+      id: `workspace:${id}`,
       kind: 'workspace',
-      value: ws,
-      label: label ? `Workspace · ${label}` : 'This workspace'
+      value: id,
+      label: human ? `Workspace · ${human}` : 'This workspace'
+    });
+  };
+  const pushConversation = (conversationId, label, workspaceIdForRef = null) => {
+    const id = String(conversationId || '').trim();
+    if (!id || seen.has(`cv:${id}`)) return;
+    seen.add(`cv:${id}`);
+    const human = String(label || '').trim();
+    choices.push({
+      id: `conversation:${id}`,
+      kind: 'conversation',
+      value: id,
+      workspaceId: workspaceIdForRef || null,
+      label: human ? `Conversation · ${human}` : 'Conversation from Chat'
+    });
+  };
+  const pushCodeSession = (cs, label, meta = {}) => {
+    const id = String(cs || '').trim();
+    if (!id || seen.has(`cs:${id}`)) return;
+    seen.add(`cs:${id}`);
+    const human = String(label || '').trim();
+    choices.push({
+      id: `code_session:${id}`,
+      kind: 'code_session',
+      value: id,
+      label: human ? `Code Session · ${human}` : 'Code Session bound via Chat',
+      workspaceId: meta.workspaceId || null,
+      conversationId: meta.conversationId || null
+    });
+  };
+
+  pushWorkspace(workspaceId, conversationTitle || projectName);
+
+  const refs = [
+    ...(Array.isArray(conversationRefs) ? conversationRefs : []),
+    ...(Array.isArray(sessions) ? sessions : [])
+  ];
+  for (const ref of refs) {
+    const label = ref?.conversationTitle || ref?.projectName || ref?.label || '';
+    pushWorkspace(ref?.workspaceId, label);
+    // Reference/conversation even when no code_session_id (Bug4).
+    pushConversation(ref?.conversationId, label, ref?.workspaceId || null);
+    pushCodeSession(ref?.codeSessionId, label, {
+      workspaceId: ref?.workspaceId || null,
+      conversationId: ref?.conversationId || null
     });
   }
-  for (const session of Array.isArray(sessions) ? sessions : []) {
-    const sessionWs = String(session?.workspaceId || '').trim();
-    if (sessionWs && !seen.has(`ws:${sessionWs}`)) {
-      seen.add(`ws:${sessionWs}`);
-      const label = String(session?.conversationTitle || session?.projectName || '').trim();
-      choices.push({
-        id: `workspace:${sessionWs}`,
-        kind: 'workspace',
-        value: sessionWs,
-        label: label ? `Workspace · ${label}` : 'Workspace from Chat'
-      });
-    }
-    const cs = String(session?.codeSessionId || '').trim();
-    if (cs && !seen.has(`cs:${cs}`)) {
-      seen.add(`cs:${cs}`);
-      const label = String(session?.conversationTitle || session?.projectName || '').trim();
-      choices.push({
-        id: `code_session:${cs}`,
-        kind: 'code_session',
-        value: cs,
-        label: label ? `Code Session · ${label}` : 'Code Session bound via Chat',
-        workspaceId: sessionWs || null,
-        conversationId: session?.conversationId || null
-      });
-    }
-  }
+
   choices.push({
     id: 'other_advanced',
     kind: 'other',
@@ -452,7 +483,7 @@ export function accessTargetChoicesFromDiscovery({
 
 /** True when give_access cannot auto-pick a single concrete target. */
 export function needsAccessTargetQuestion(actionId, choices = [], selectedTargetId = '') {
-  if (String(actionId || '').trim() !== 'give_access') return false;
+  if (!isLightweightResolveAction(actionId)) return false;
   if (String(selectedTargetId || '').trim()) return false;
   const concrete = (Array.isArray(choices) ? choices : []).filter((c) => c.kind !== 'other' && c.value);
   return concrete.length !== 1;
@@ -463,10 +494,10 @@ export function resolvingAutoResolvePlaceholder(actionId = '') {
   const action = String(actionId || '').trim();
   const out = {};
   for (const step of WORK_AUTO_RESOLVE_STEPS) {
-    if (action === 'give_access' && GIVE_ACCESS_SKIP_STEP_IDS.includes(step.id)) {
+    if (isLightweightResolveAction(action) && GIVE_ACCESS_SKIP_STEP_IDS.includes(step.id)) {
       out[step.id] = {
         status: 'skipped',
-        detail: 'Skipped for Give access — not required (no Code Session / pins / Task Run wait).',
+        detail: 'Skipped for this intent — Code Session / pins / Task Run not required.',
         value: null
       };
     } else {
@@ -658,6 +689,61 @@ function writeJson(storage, key, value) {
  * Honest Code Session options from Conversation Session list rows.
  * Only rows with a non-empty code_session_id are selectable — never invent IDs.
  */
+
+/**
+ * Surface workspace + conversation references from Conversation list rows
+ * even when code_session_id is absent. Never invents IDs.
+ */
+export function conversationRefsFromList(payload) {
+  const rows = payload?.sessions
+    || payload?.conversations
+    || payload?.conversation_sessions
+    || payload?.items
+    || (Array.isArray(payload) ? payload : []);
+  if (!Array.isArray(rows)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const row of rows) {
+    const conversationId = String(row?.conversation_id || row?.id || '').trim();
+    const workspaceId = String(row?.workspace_id || row?.bindings?.workspace_id || '').trim();
+    const codeSessionId = String(
+      row?.code_session_id
+      || row?.bindings?.code_session_id
+      || row?.codeSessionId
+      || ''
+    ).trim();
+    const conversationTitle = String(
+      row?.title
+      || row?.conversation_title
+      || row?.name
+      || row?.bindings?.title
+      || ''
+    ).trim();
+    const projectName = String(
+      row?.project_name
+      || row?.bindings?.project_name
+      || row?.workspace_name
+      || ''
+    ).trim();
+    if (!conversationId && !workspaceId && !codeSessionId) continue;
+    const key = [workspaceId || '', conversationId || '', codeSessionId || ''].join('|');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const humanLabel = conversationTitle || projectName || '';
+    out.push({
+      conversationId: conversationId || null,
+      workspaceId: workspaceId || null,
+      codeSessionId: codeSessionId || null,
+      conversationTitle: conversationTitle || null,
+      projectName: projectName || null,
+      label: humanLabel
+        || (workspaceId ? 'Workspace from Chat' : (conversationId ? 'Conversation from Chat' : 'Chat binding')),
+      source: 'conversation_session'
+    });
+  }
+  return out;
+}
+
 export function codeSessionsFromConversationList(payload) {
   const rows = payload?.sessions
     || payload?.conversations
@@ -844,14 +930,21 @@ export function buildAutoResolveSnapshot({
   actionId = '',
   needsAccessTargetPick = false,
   accessTargetId = '',
+  accessTargetKind = '',
+  accessTargetLabel = '',
   mcpTimeout = false,
   mcpTimeoutDetail = ''
 } = {}) {
   const action = String(actionId || '').trim();
   const isGiveAccess = action === 'give_access';
+  const isLightweight = isLightweightResolveAction(action);
+  const targetKind = String(accessTargetKind || '').trim();
+  const csTargetSelected = targetKind === 'code_session' && Boolean(
+    codeSession?.codeSessionId || idBundle.code_session_id || accessTargetId
+  );
   const pins = summarizePins(sourceRepos, baseCommits);
-  const idsResolved = isGiveAccess
-    ? Boolean(workspaceId || idBundle.workspace_id || accessTargetId)
+  const idsResolved = isLightweight
+    ? Boolean(workspaceId || idBundle.workspace_id || accessTargetId || csTargetSelected)
     : Boolean(
       (codeSession?.codeSessionId || idBundle.code_session_id)
       && (workspaceId || idBundle.workspace_id)
@@ -891,29 +984,37 @@ export function buildAutoResolveSnapshot({
         detail: 'Access readiness blocked — workspace capability missing in this browser session (never stoned).',
         value: null
       },
-    code_session: isGiveAccess
+    code_session: csTargetSelected
       ? {
-        status: 'skipped',
-        detail: 'Skipped for Give access — Code Session not required.',
-        value: null
+        status: 'resolved',
+        detail: boundViaChat || targetKind === 'code_session'
+          ? 'Code Session selected as access target'
+          : 'Code Session bound',
+        value: codeSession?.codeSessionId || idBundle.code_session_id || null
       }
-      : (codeSession?.codeSessionId
+      : (isLightweight
         ? {
-          status: 'resolved',
-          detail: boundViaChat ? 'Code Session bound via Chat' : 'Code Session bound',
-          value: codeSession.codeSessionId
-        }
-        : {
-          status: needsRepoBranchPick ? 'pending' : 'blocked',
-          detail: needsRepoBranchPick
-            ? 'Pick one repo + branch below — CairnStone resolves pins server-side (no commit hash or session-id field in default).'
-            : 'No Conversation-bound Code Session yet. Pick a repo + branch in default Work, or use Advanced Create (raw SHA / session id) as escape hatch.',
+          status: 'skipped',
+          detail: 'Skipped for this intent — Code Session not required.',
           value: null
-        }),
-    source_repos_base_commits: isGiveAccess
+        }
+        : (codeSession?.codeSessionId
+          ? {
+            status: 'resolved',
+            detail: boundViaChat ? 'Code Session bound via Chat' : 'Code Session bound',
+            value: codeSession.codeSessionId
+          }
+          : {
+            status: needsRepoBranchPick ? 'pending' : 'blocked',
+            detail: needsRepoBranchPick
+              ? 'Pick one repo + branch below — CairnStone resolves pins server-side (no commit hash or session-id field in default).'
+              : 'No Conversation-bound Code Session yet. Pick a repo + branch in default Work, or use Advanced Create (raw SHA / session id) as escape hatch.',
+            value: null
+          })),
+    source_repos_base_commits: isLightweight
       ? {
         status: 'skipped',
-        detail: 'Skipped for Give access — repo pins not required.',
+        detail: 'Skipped for this intent — repo pins not required.',
         value: null
       }
       : ((sourceRepos.length || baseCommits.length)
@@ -944,15 +1045,15 @@ export function buildAutoResolveSnapshot({
         status: needsAccessTargetPick ? 'blocked' : 'pending',
         detail: needsAccessTargetPick
           ? 'Access to what? Pick one target below — Console will not invent a Code Session.'
-          : (isGiveAccess
+          : (isLightweight
             ? 'IDs resolve after workspace / access target is known.'
             : 'IDs resolve after workspace + Code Session bind.'),
         value: null
       },
-    task_run_events: isGiveAccess
+    task_run_events: isLightweight
       ? {
         status: 'skipped',
-        detail: 'Skipped for Give access — Task Run / events not required.',
+        detail: 'Skipped for this intent — Task Run / events not required.',
         value: null
       }
       : ((proposalReady || taskRunId || eventsReady)
@@ -984,14 +1085,32 @@ export function buildAutoResolveSnapshot({
     }
   }
 
-  if (needsAccessTargetPick && isGiveAccess) {
+  if (needsAccessTargetPick && isLightweight) {
     out.workspace = {
       status: 'blocked',
-      detail: 'Access to what? Choose one human target — Give access will not wait on Code Session or invent one.',
+      detail: 'Access to what? Choose one human target — this intent will not wait on Code Session or invent one.',
       value: null,
       label: null
     };
   }
 
   return out;
+}
+
+/**
+ * Path A confirm copy when a sole access target auto-resolves.
+ * Presentation only — does not mint grants.
+ */
+export function accessGrantConfirmPrompt({
+  actionId = '',
+  principalLabel = '',
+  targetLabel = '',
+  permission = 'read'
+} = {}) {
+  const action = String(actionId || '').trim();
+  if (action !== 'give_access') return '';
+  const who = String(principalLabel || 'this principal').trim() || 'this principal';
+  const target = String(targetLabel || 'this target').trim() || 'this target';
+  const perm = String(permission || 'read').trim() || 'read';
+  return `Give ${who} ${perm} access to ${target}?`;
 }

@@ -55,3 +55,11 @@ Intent-aware auto-resolve:
 - Ambiguous / missing access target asks one human question: **Access to what?** — never invents a Code Session.
 - `mcpCall` uses an AbortController timeout (10s). Timeout → typed `MCP_TIMEOUT` blocked row + Retry CTA; rows show **resolving** before await.
 - No auto-grant, silent capability mint, auto-dispatch, or accepted-state mutation. Worker untouched.
+
+### CoS follow-up (PR tip)
+
+- **forward** uses the same lightweight resolve skips as **give_access** (assign stays full path).
+- If the access target kind is **code_session**, that resolve row is **resolved** (not skipped).
+- MCP timeout surfaces a real **Retry** control (list button + resolve refresh relabel).
+- Access targets include workspace / conversation refs from `conversations[]` even without `code_session_id`.
+- Path A: when a sole target auto-resolves for give_access, Console asks **Give <principal> read access to <label>?** before Human Commit.

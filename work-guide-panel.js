@@ -7,12 +7,15 @@
 
 import {
   WORK_ACTION_CHOICES,
+  accessGrantConfirmPrompt,
   accessTargetChoicesFromDiscovery,
   buildAutoResolveSnapshot,
   codeSessionsFromConversationList,
   composeIntentFromAnswers,
+  conversationRefsFromList,
   extractResolvedCommitSha,
   humanActorOptions,
+  isLightweightResolveAction,
   mintCodeSessionId,
   needsAccessTargetQuestion,
   parseRepoPick,
@@ -97,6 +100,9 @@ export function initWorkGuidePanel(api = {}) {
     accessTargetPick: document.getElementById('workAccessTargetPick'),
     accessTargetChoices: document.getElementById('workAccessTargetChoices'),
     accessTargetNote: document.getElementById('workAccessTargetNote'),
+    accessConfirm: document.getElementById('workAccessConfirm'),
+    accessConfirmText: document.getElementById('workAccessConfirmText'),
+    accessConfirmCheck: document.getElementById('workAccessConfirmCheck'),
     codeLoad: document.getElementById('codeLoad'),
     codeSurface: document.getElementById('codeSurface'),
     advancedShell: document.getElementById('workAdvancedShell'),
@@ -117,6 +123,8 @@ export function initWorkGuidePanel(api = {}) {
     stageEvents: document.getElementById('workStageEvents'),
     stageRetention: document.getElementById('workStageRetention'),
     intentText: document.getElementById('intentText'),
+    intentHumanCommit: document.getElementById('intentHumanCommit'),
+    intentCommitProposal: document.getElementById('intentCommitProposal'),
     dispatchTaskRunId: document.getElementById('dispatchTaskRunId')
   };
 
@@ -135,6 +143,9 @@ export function initWorkGuidePanel(api = {}) {
   let needsRepoBranchPick = false;
   let needsAccessTargetPick = false;
   let accessTargetChoices = [];
+  let conversationRefs = [];
+  let accessConfirmAccepted = Boolean(answers.accessConfirmAccepted);
+  let lastMcpTimeout = false;
 
   const prefs0 = readWorkGuidePrefs();
   if (els.workspaceId && prefs0.workspaceId) {
@@ -195,8 +206,10 @@ export function initWorkGuidePanel(api = {}) {
     els.resolveCard?.classList.toggle('hidden', !model.allAnswered);
     els.confirmCard?.classList.toggle('hidden', !model.allAnswered);
     els.codeSessionCard?.classList.toggle('hidden', !model.allAnswered);
-    els.repoBranchPick?.classList.toggle('hidden', !(model.allAnswered && needsRepoBranchPick && answers.actionId !== 'give_access'));
-    els.accessTargetPick?.classList.toggle('hidden', !(model.allAnswered && needsAccessTargetPick && answers.actionId === 'give_access'));
+    const lightweight = isLightweightResolveAction(answers.actionId);
+    els.repoBranchPick?.classList.toggle('hidden', !(model.allAnswered && needsRepoBranchPick && !lightweight));
+    els.accessTargetPick?.classList.toggle('hidden', !(model.allAnswered && needsAccessTargetPick && lightweight));
+    els.accessConfirm?.classList.toggle('hidden', !(model.allAnswered && answers.actionId === 'give_access' && answers.accessTargetId && !needsAccessTargetPick));
     els.stageEvents?.classList.toggle('hidden', !model.visibility?.events);
     els.stageRetention?.classList.toggle('hidden', !model.visibility?.retention);
     els.guideBack?.classList.toggle('hidden', model.questionNumber <= 1 && !model.allAnswered);
@@ -204,12 +217,15 @@ export function initWorkGuidePanel(api = {}) {
     if (els.codeSessionStatus) {
       if (!model.allAnswered) {
         els.codeSessionStatus.textContent = 'Answer the three questions to resolve CairnStone values.';
-      } else if (answers.actionId === 'give_access') {
+      } else if (isLightweightResolveAction(answers.actionId)) {
+        const verb = answers.actionId === 'forward' ? 'Forward' : 'Give access';
         els.codeSessionStatus.textContent = needsAccessTargetPick
-          ? 'Give access — choose Access to what? below. Console will not invent a Code Session.'
-          : (autoResolve.code_session?.status === 'skipped'
-            ? 'Give access — Code Session not required for this intent.'
-            : (autoResolve.code_session?.detail || 'Give access ready for review.'));
+          ? `${verb} — choose Access to what? below. Console will not invent a Code Session.`
+          : (autoResolve.code_session?.status === 'resolved'
+            ? (autoResolve.code_session.detail || 'Code Session selected as access target')
+            : (autoResolve.code_session?.status === 'skipped'
+              ? `${verb} — Code Session not required for this intent.`
+              : (autoResolve.code_session?.detail || `${verb} ready for review.`)));
       } else if (needsRepoBranchPick) {
         els.codeSessionStatus.textContent = 'No Chat-bound Code Session — pick one repo and branch below. Pins resolve server-side.';
       } else if (autoResolve.code_session?.status === 'resolved') {
@@ -249,15 +265,27 @@ export function initWorkGuidePanel(api = {}) {
   function renderAutoResolveList(model) {
     if (!els.resolveList) return;
     const steps = model.autoResolveSteps || [];
+    const hasMcpTimeout = steps.some((step) => {
+      const row = model.autoResolve?.[step.id] || {};
+      return row.status === 'blocked' && (row.value?.code === 'MCP_TIMEOUT' || /timed out|timeout/i.test(String(row.detail || '')));
+    }) || lastMcpTimeout;
     els.resolveList.innerHTML = steps.map((step) => {
       const row = model.autoResolve?.[step.id] || {};
       const status = row.status || 'pending';
       const detail = redactRawSha(row.detail || step.missing);
+      const showRetry = status === 'blocked' && (row.value?.code === 'MCP_TIMEOUT' || /timed out|timeout/i.test(String(detail)));
+      const retry = showRetry
+        ? ` <button type="button" class="secondary compact-button work-resolve-retry" data-resolve-retry="1">Retry</button>`
+        : '';
       return `<li class="work-resolve-item status-${esc(statusClass(status))}" data-resolve="${esc(step.id)}">
         <div class="work-resolve-head"><strong>${esc(step.label)}</strong><span class="work-resolve-status">${esc(status)}</span></div>
-        <div class="muted small">${esc(detail)}</div>
+        <div class="muted small">${esc(detail)}${retry}</div>
       </li>`;
     }).join('');
+    if (els.resolveRefresh) {
+      els.resolveRefresh.textContent = hasMcpTimeout ? 'Retry' : 'Refresh resolve';
+      els.resolveRefresh.dataset.mcpTimeout = hasMcpTimeout ? '1' : '0';
+    }
   }
 
   function renderGuide() {
@@ -291,6 +319,7 @@ export function initWorkGuidePanel(api = {}) {
     renderActorPicker(model);
     renderActionChoices();
     renderAutoResolveList(model);
+    renderAccessConfirm();
     applyVisibility(model);
 
     if (model.allAnswered && els.intentText) {
@@ -363,7 +392,40 @@ export function initWorkGuidePanel(api = {}) {
   }
 
 
-  function renderAccessTargetChoices() {
+  
+  function renderAccessConfirm() {
+    if (!els.accessConfirm) return;
+    const show = answers.actionId === 'give_access'
+      && Boolean(answers.accessTargetId)
+      && !needsAccessTargetPick;
+    els.accessConfirm.classList.toggle('hidden', !show);
+    if (!show) return;
+    const target = accessTargetChoices.find((c) => c.id === answers.accessTargetId);
+    const targetLabel = target?.label
+      || answers.accessTargetLabel
+      || (answers.accessTargetKind === 'workspace' ? 'this workspace' : 'this target');
+    const prompt = accessGrantConfirmPrompt({
+      actionId: answers.actionId,
+      principalLabel: answers.whoDisplay || answers.whoMailboxId || 'this principal',
+      targetLabel,
+      permission: 'read'
+    });
+    if (els.accessConfirmText) els.accessConfirmText.textContent = prompt;
+    if (els.accessConfirmCheck) {
+      els.accessConfirmCheck.checked = Boolean(accessConfirmAccepted);
+    }
+    // Gate Human Commit until Path A confirm is checked.
+    if (els.intentHumanCommit) {
+      els.intentHumanCommit.disabled = !accessConfirmAccepted;
+      if (!accessConfirmAccepted) els.intentHumanCommit.checked = false;
+    }
+    if (els.intentCommitProposal) {
+      // app.js also gates on checkbox; keep disabled until confirm when visible
+      if (!accessConfirmAccepted) els.intentCommitProposal.disabled = true;
+    }
+  }
+
+function renderAccessTargetChoices() {
     if (!els.accessTargetChoices) return;
     const selected = String(answers.accessTargetId || '').trim();
     if (!accessTargetChoices.length) {
@@ -392,6 +454,8 @@ export function initWorkGuidePanel(api = {}) {
       accessTargetValue: value || null
     };
     needsAccessTargetPick = false;
+    accessConfirmAccepted = false;
+    answers = { ...answers, accessConfirmAccepted: false, accessTargetLabel: accessTargetChoices.find((c) => c.id === targetId)?.label || '' };
     if (kind === 'other') {
       toast('Use Advanced / Share for another object — no auto Code Session create');
     }
@@ -407,7 +471,9 @@ export function initWorkGuidePanel(api = {}) {
       actor_id: actor,
       limit: 50
     });
+    // CS-filtered rows for Code Session bind; refs keep workspace/conversation even without CS.
     discoveredSessions = codeSessionsFromConversationList(data);
+    conversationRefs = conversationRefsFromList(data);
     return discoveredSessions;
   }
 
@@ -481,12 +547,14 @@ export function initWorkGuidePanel(api = {}) {
     resolving = true;
     const actionId = String(answers.actionId || '').trim();
     const isGiveAccess = actionId === 'give_access';
+    const isLightweight = isLightweightResolveAction(actionId);
 
-    // Show resolving rows before any await (skipped rows terminal for give_access).
+    // Show resolving rows before any await (skipped rows terminal for lightweight intents).
     autoResolve = resolvingAutoResolvePlaceholder(actionId);
+    lastMcpTimeout = false;
     persistAnswers();
     renderGuide();
-    toast(isGiveAccess ? 'Resolving access targets…' : 'Resolving CairnStone values…');
+    toast(isLightweight ? 'Resolving access targets…' : 'Resolving CairnStone values…');
 
     let mcpTimeout = false;
     let mcpTimeoutDetail = '';
@@ -503,8 +571,9 @@ export function initWorkGuidePanel(api = {}) {
         renderDiscoveryOptions([], { error: err });
         if (err?.code === 'MCP_TIMEOUT' || err?.blocked) {
           mcpTimeout = true;
+          lastMcpTimeout = true;
           mcpTimeoutDetail = err.message || 'Conversation list timed out';
-          toast(`${mcpTimeoutDetail} — ${err.cta || 'Retry resolve'}`);
+          toast(`${mcpTimeoutDetail} — ${err.cta || 'Retry'}`);
         } else {
           toast(err.message || 'Conversation Session list unavailable');
         }
@@ -513,6 +582,7 @@ export function initWorkGuidePanel(api = {}) {
       discoveredSessions = sessions;
       accessTargetChoices = accessTargetChoicesFromDiscovery({
         sessions,
+        conversationRefs,
         workspaceId,
         conversationTitle: workspaceHumanMeta.conversationTitle,
         projectName: workspaceHumanMeta.projectName
@@ -528,23 +598,42 @@ export function initWorkGuidePanel(api = {}) {
       if (best?.conversationTitle) workspaceHumanMeta.conversationTitle = best.conversationTitle;
       if (best?.projectName) workspaceHumanMeta.projectName = best.projectName;
 
-      // Auto-pick sole concrete target for give_access.
-      if (isGiveAccess && !needsAccessTargetPick && !answers.accessTargetId) {
+      // Auto-pick sole concrete target for lightweight intents (Path A confirm follows for give_access).
+      if (isLightweight && !needsAccessTargetPick && !answers.accessTargetId) {
         const sole = accessTargetChoices.find((c) => c.kind !== 'other' && c.value);
         if (sole) {
-          answers = { ...answers, accessTargetId: sole.id, accessTargetKind: sole.kind, accessTargetValue: sole.value };
-          if (sole.kind === 'workspace' && sole.value && !workspaceId) {
-            workspaceId = sole.value;
+          answers = {
+            ...answers,
+            accessTargetId: sole.id,
+            accessTargetKind: sole.kind,
+            accessTargetValue: sole.value,
+            accessTargetLabel: sole.label || '',
+            accessConfirmAccepted: false
+          };
+          accessConfirmAccepted = false;
+          if ((sole.kind === 'workspace' || sole.kind === 'conversation') && (sole.workspaceId || sole.value) && !workspaceId) {
+            workspaceId = String(sole.workspaceId || sole.value);
           }
         }
       }
 
-      if (isGiveAccess && answers.accessTargetKind === 'workspace' && answers.accessTargetValue) {
+      if (isLightweight && answers.accessTargetKind === 'workspace' && answers.accessTargetValue) {
         workspaceId = String(answers.accessTargetValue);
       }
+      if (isLightweight && answers.accessTargetKind === 'conversation') {
+        const ref = conversationRefs.find((r) => r.conversationId === answers.accessTargetValue);
+        if (ref?.workspaceId) workspaceId = String(ref.workspaceId);
+      }
 
-      if (best?.workspaceId && !workspaceId && !isGiveAccess) {
+      if (best?.workspaceId && !workspaceId && !isLightweight) {
         workspaceId = best.workspaceId;
+      }
+      // Prefer workspace from conversation refs even without a Code Session.
+      if (!workspaceId && conversationRefs[0]?.workspaceId && isLightweight) {
+        workspaceId = conversationRefs[0].workspaceId;
+        if (conversationRefs[0].conversationTitle) {
+          workspaceHumanMeta.conversationTitle = conversationRefs[0].conversationTitle;
+        }
       }
       if (workspaceId) {
         if (els.workspaceId) els.workspaceId.value = workspaceId;
@@ -552,7 +641,7 @@ export function initWorkGuidePanel(api = {}) {
         syncInviteWorkspace(workspaceId);
       }
 
-      if (isGiveAccess) {
+      if (isLightweight) {
         // Never spin on repo/branch bind and never create a Code Session by default.
         needsRepoBranchPick = false;
         if (answers.accessTargetKind === 'code_session' && answers.accessTargetValue) {
@@ -568,7 +657,7 @@ export function initWorkGuidePanel(api = {}) {
       const workspaceCapability = (els.workspaceCap?.value || '').trim();
       let sourceRepos = best?.sourceRepos || [];
       let baseCommits = best?.baseCommits || [];
-      if (!isGiveAccess && best?.codeSessionId && workspaceCapability) {
+      if (!isLightweight && best?.codeSessionId && workspaceCapability) {
         try {
           const hydrated = await hydratePinsFromCodeSession(best.codeSessionId, workspaceCapability);
           if (hydrated.sourceRepos.length) sourceRepos = hydrated.sourceRepos;
@@ -576,15 +665,20 @@ export function initWorkGuidePanel(api = {}) {
         } catch (err) {
           if (err?.code === 'MCP_TIMEOUT' || err?.blocked) {
             mcpTimeout = true;
+            lastMcpTimeout = true;
             mcpTimeoutDetail = err.message || 'Code Session pin hydrate timed out';
           }
         }
       }
 
       const taskRunId = (els.dispatchTaskRunId?.value || '').trim();
-      const codeSessionForSnap = isGiveAccess
+      const codeSessionForSnap = isLightweight
         ? (answers.accessTargetKind === 'code_session'
-          ? { codeSessionId: answers.accessTargetValue, conversationId: best?.conversationId || null, conversationTitle: best?.conversationTitle || null }
+          ? {
+            codeSessionId: answers.accessTargetValue,
+            conversationId: best?.conversationId || conversationRefs.find((r) => r.codeSessionId === answers.accessTargetValue)?.conversationId || null,
+            conversationTitle: best?.conversationTitle || answers.accessTargetLabel || null
+          }
           : null)
         : best;
 
@@ -595,21 +689,23 @@ export function initWorkGuidePanel(api = {}) {
         fromPrefs: workspaceHumanMeta.fromPrefs || Boolean(workspaceId),
         hasWorkspaceCapability,
         codeSession: codeSessionForSnap,
-        sourceRepos: isGiveAccess ? [] : sourceRepos,
-        baseCommits: isGiveAccess ? [] : baseCommits,
-        taskRunId: isGiveAccess ? '' : taskRunId,
-        proposalReady: isGiveAccess ? false : proposalReady,
-        eventsReady: isGiveAccess ? false : (proposalReady || Boolean(taskRunId)),
-        needsRepoBranchPick: isGiveAccess ? false : needsRepoBranchPick,
+        sourceRepos: isLightweight ? [] : sourceRepos,
+        baseCommits: isLightweight ? [] : baseCommits,
+        taskRunId: isLightweight ? '' : taskRunId,
+        proposalReady: isLightweight ? false : proposalReady,
+        eventsReady: isLightweight ? false : (proposalReady || Boolean(taskRunId)),
+        needsRepoBranchPick: isLightweight ? false : needsRepoBranchPick,
         idBundle: {
           workspace_id: workspaceId,
           code_session_id: codeSessionForSnap?.codeSessionId || null,
-          conversation_id: best?.conversationId || null,
-          task_run_id: isGiveAccess ? null : (taskRunId || null)
+          conversation_id: best?.conversationId || conversationRefs[0]?.conversationId || null,
+          task_run_id: isLightweight ? null : (taskRunId || null)
         },
         actionId,
         needsAccessTargetPick,
         accessTargetId: answers.accessTargetId || '',
+        accessTargetKind: answers.accessTargetKind || '',
+        accessTargetLabel: answers.accessTargetLabel || '',
         mcpTimeout,
         mcpTimeoutDetail
       });
@@ -621,19 +717,22 @@ export function initWorkGuidePanel(api = {}) {
         els.intentText.dispatchEvent(new Event('input'));
       }
 
-      if (!isGiveAccess && best?.codeSessionId && hasWorkspaceCapability && !consoleViewKickoffDone) {
+      if (!isLightweight && best?.codeSessionId && hasWorkspaceCapability && !consoleViewKickoffDone) {
         consoleViewKickoffDone = true;
         els.codeLoad?.click();
       }
 
-      if (!isGiveAccess && scrollToCode && best?.codeSessionId) softScrollToCodeSession();
+      if (!isLightweight && scrollToCode && best?.codeSessionId) softScrollToCodeSession();
 
       if (mcpTimeout) {
-        toast(`${mcpTimeoutDetail || 'Resolve timed out'} — Retry resolve`);
-      } else if (isGiveAccess && needsAccessTargetPick) {
+        lastMcpTimeout = true;
+        toast(`${mcpTimeoutDetail || 'Resolve timed out'} — tap Retry`);
+      } else if (isLightweight && needsAccessTargetPick) {
         toast('Access to what? Pick one target — Console will not invent a Code Session');
       } else if (isGiveAccess) {
-        toast('Give access resolved — review before Human Commit (no auto-grant)');
+        toast('Confirm access target below — Human Commit still required (no auto-grant)');
+      } else if (actionId === 'forward') {
+        toast('Forward resolved — review before Human Commit (no auto-dispatch)');
       } else {
         toast(best?.codeSessionId
           ? 'Resolved from Conversation bindings — review before Human Commit'
@@ -970,10 +1069,22 @@ export function initWorkGuidePanel(api = {}) {
     if (!btn) return;
     selectAccessTarget(btn.dataset.targetId, btn.dataset.targetKind, btn.dataset.targetValue);
   });
-els.actionChoices?.addEventListener('click', (ev) => {
+  els.actionChoices?.addEventListener('click', (ev) => {
     const btn = ev.target?.closest?.('[data-action-id]');
     if (!btn) return;
     selectAction(btn.dataset.actionId, btn.dataset.label);
+  });
+  els.accessConfirmCheck?.addEventListener('change', () => {
+    accessConfirmAccepted = Boolean(els.accessConfirmCheck.checked);
+    answers = { ...answers, accessConfirmAccepted };
+    persistAnswers();
+    renderAccessConfirm();
+    renderGuide();
+  });
+  els.resolveList?.addEventListener('click', (ev) => {
+    const btn = ev.target?.closest?.('[data-resolve-retry]');
+    if (!btn) return;
+    void runAutoResolve({ scrollToCode: false });
   });
   els.intentText?.addEventListener('input', () => {
     if (els.intentText.dataset.fromQuestionnaire === '1') {

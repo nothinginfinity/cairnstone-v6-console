@@ -379,3 +379,9 @@ html.cs-reduced-motion .universe-node.active,html.cs-reduced-motion .universe-no
 .work-access-target-choices{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}
 .work-access-target-chip{border:1px solid var(--line);border-radius:12px;background:var(--surface);color:var(--text);padding:10px 12px;font-weight:700;min-height:var(--touch);cursor:pointer}
 .work-access-target-chip.active{border-color:rgba(139,184,255,.7);box-shadow:0 0 0 1px rgba(139,184,255,.35) inset}
+
+.work-access-confirm{margin:0 0 12px;padding:12px;border:1px solid rgba(139,184,255,.45);border-radius:12px;background:rgba(139,184,255,.08)}
+.work-access-confirm-text{margin:0 0 8px;font-weight:700}
+.work-access-confirm.hidden{display:none!important}
+.work-resolve-retry{margin-left:8px;vertical-align:middle}
+.compact-button{padding:6px 10px;min-height:32px;font-size:.75rem}
