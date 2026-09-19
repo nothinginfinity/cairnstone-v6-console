@@ -45,3 +45,13 @@ Uses `cairnstone_conversation_session_list` (+ optional `cairnstone_code_session
 ```bash
 node --test work-guide.test.js work-surface.test.js progressive-disclosure.test.js shell-nav.test.js
 ```
+
+## Hotfix — give_access resolver (no hang)
+
+Intent-aware auto-resolve:
+
+- `payload.conversations` is accepted by Conversation discovery (same honesty rules as `sessions`).
+- **Give access** does not wait on Code Session, repo pins, or Task Run — those rows are **skipped** (terminal).
+- Ambiguous / missing access target asks one human question: **Access to what?** — never invents a Code Session.
+- `mcpCall` uses an AbortController timeout (10s). Timeout → typed `MCP_TIMEOUT` blocked row + Retry CTA; rows show **resolving** before await.
+- No auto-grant, silent capability mint, auto-dispatch, or accepted-state mutation. Worker untouched.

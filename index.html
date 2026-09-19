@@ -360,6 +360,11 @@
           </div>
           <p class="muted small">Presentation resolves CairnStone values from Conversation bindings + session prefs. It never invents IDs, never weakens <code>scoped_grant</code>, and never auto-dispatches.</p>
           <ul id="workAutoResolveList" class="work-resolve-list" aria-live="polite"></ul>
+          <div id="workAccessTargetPick" class="work-access-target-pick hidden">
+            <p class="muted small"><strong>Access to what?</strong> Give access needs one human target. Console will not wait on Code Session, repo pins, or Task Run — and will not create a Code Session by default.</p>
+            <div id="workAccessTargetChoices" class="work-access-target-choices" role="listbox" aria-label="Access to what?"></div>
+            <p id="workAccessTargetNote" class="muted small" aria-live="polite"></p>
+          </div>
         </div>
 
         <div class="card work-confirm-card hidden" id="workConfirmCard">

@@ -9,16 +9,20 @@ import {
   WORK_AUTO_RESOLVE_STEPS,
   WORK_GUIDE_STEPS,
   WORK_QUESTIONS,
+  accessTargetChoicesFromDiscovery,
   buildAutoResolveSnapshot,
   codeSessionsFromConversationList,
   composeIntentFromAnswers,
+  computeResolveCompletion,
   extractResolvedCommitSha,
   humanActorOptions,
   mintCodeSessionId,
+  needsAccessTargetQuestion,
   parseRepoPick,
   questionnaireModel,
   readWorkGuidePrefs,
   redactRawSha,
+  resolvingAutoResolvePlaceholder,
   summarizePins,
   workGuideModel,
   workspaceHumanLabel,
@@ -322,5 +326,94 @@ describe('workGuidePrefs storage', () => {
     assert.equal(prefs.answers.what, 'demo');
     assert.equal(prefs.autoResolve.workspace.status, 'resolved');
     assert.equal([...mem.keys()].some(k => /capabilit|token|secret/i.test(k)), false);
+  });
+});
+
+
+describe('codeSessionsFromConversationList conversations fixture', () => {
+  it('parses payload.conversations the same as sessions', () => {
+    const fromConversations = codeSessionsFromConversationList({
+      conversations: [
+        {
+          conversation_id: 'cvs:ops',
+          title: 'Ops chat',
+          workspace_id: 'ws:ops',
+          code_session_id: 'cs:ops',
+          bindings: { project_name: 'Ops' }
+        },
+        { conversation_id: 'cvs:empty' },
+        {
+          conversation_id: 'cvs:other',
+          bindings: { code_session_id: 'cs:other', workspace_id: 'ws:other' },
+          title: 'Other'
+        }
+      ]
+    });
+    assert.equal(fromConversations.length, 2);
+    assert.equal(fromConversations[0].codeSessionId, 'cs:ops');
+    assert.equal(fromConversations[0].conversationTitle, 'Ops chat');
+    assert.equal(fromConversations[1].codeSessionId, 'cs:other');
+  });
+});
+
+describe('give_access intent-aware resolveComplete', () => {
+  it('treats skipped Code Session / pins / Task Run as terminal for give_access', () => {
+    const snap = buildAutoResolveSnapshot({
+      actionId: 'give_access',
+      workspaceId: 'ws:1',
+      hasWorkspaceCapability: true
+    });
+    assert.equal(snap.code_session.status, 'skipped');
+    assert.equal(snap.source_repos_base_commits.status, 'skipped');
+    assert.equal(snap.task_run_events.status, 'skipped');
+    const { resolveComplete, resolveBlocked } = computeResolveCompletion(snap, 'give_access');
+    assert.equal(resolveComplete, true);
+    assert.equal(resolveBlocked, false);
+
+    const model = questionnaireModel({
+      answers: {
+        what: 'Share the ops workspace',
+        whoMailboxId: 'grok:cairnstone',
+        whoDisplay: 'Grok',
+        actionId: 'give_access',
+        actionLabel: 'Give access'
+      },
+      questionIndex: 3,
+      autoResolve: snap
+    });
+    assert.equal(model.phase, 'confirm');
+    assert.equal(model.resolveComplete, true);
+    assert.notEqual(model.primaryCta.action, 'noop_resolving');
+  });
+
+  it('asks Access to what? when target is ambiguous or missing — without inventing Code Session', () => {
+    const choices = accessTargetChoicesFromDiscovery({
+      sessions: [
+        { codeSessionId: 'cs:a', workspaceId: 'ws:a', conversationTitle: 'A' },
+        { codeSessionId: 'cs:b', workspaceId: 'ws:b', conversationTitle: 'B' }
+      ]
+    });
+    assert.equal(needsAccessTargetQuestion('give_access', choices, ''), true);
+    assert.equal(needsAccessTargetQuestion('assign', choices, ''), false);
+
+    const snap = buildAutoResolveSnapshot({
+      actionId: 'give_access',
+      hasWorkspaceCapability: true,
+      needsAccessTargetPick: true
+    });
+    assert.equal(snap.workspace.status, 'blocked');
+    assert.match(snap.workspace.detail, /Access to what/i);
+    assert.equal(snap.code_session.status, 'skipped');
+    const { resolveComplete, resolveBlocked } = computeResolveCompletion(snap, 'give_access');
+    assert.equal(resolveComplete, false);
+    assert.equal(resolveBlocked, true);
+  });
+
+  it('resolving placeholder marks give_access skips before await', () => {
+    const placeholder = resolvingAutoResolvePlaceholder('give_access');
+    assert.equal(placeholder.workspace.status, 'resolving');
+    assert.equal(placeholder.code_session.status, 'skipped');
+    assert.equal(placeholder.source_repos_base_commits.status, 'skipped');
+    assert.equal(placeholder.task_run_events.status, 'skipped');
   });
 });

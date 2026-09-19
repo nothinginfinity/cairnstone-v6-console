@@ -7,16 +7,19 @@
 
 import {
   WORK_ACTION_CHOICES,
+  accessTargetChoicesFromDiscovery,
   buildAutoResolveSnapshot,
   codeSessionsFromConversationList,
   composeIntentFromAnswers,
   extractResolvedCommitSha,
   humanActorOptions,
   mintCodeSessionId,
+  needsAccessTargetQuestion,
   parseRepoPick,
   questionnaireModel,
   readWorkGuidePrefs,
   redactRawSha,
+  resolvingAutoResolvePlaceholder,
   writeWorkGuidePrefs
 } from './work-guide.js';
 
@@ -49,6 +52,7 @@ function statusClass(status) {
   if (status === 'resolved') return 'ok';
   if (status === 'blocked') return 'bad';
   if (status === 'resolving') return 'busy';
+  if (status === 'skipped') return 'skipped';
   return 'pending';
 }
 
@@ -90,6 +94,9 @@ export function initWorkGuidePanel(api = {}) {
     branchPick: document.getElementById('workBranchPick'),
     repoBranchBindBtn: document.getElementById('workRepoBranchBindBtn'),
     repoBranchNote: document.getElementById('workRepoBranchNote'),
+    accessTargetPick: document.getElementById('workAccessTargetPick'),
+    accessTargetChoices: document.getElementById('workAccessTargetChoices'),
+    accessTargetNote: document.getElementById('workAccessTargetNote'),
     codeLoad: document.getElementById('codeLoad'),
     codeSurface: document.getElementById('codeSurface'),
     advancedShell: document.getElementById('workAdvancedShell'),
@@ -126,6 +133,8 @@ export function initWorkGuidePanel(api = {}) {
   let applyingBoundSession = false;
   let workspaceHumanMeta = { conversationTitle: '', projectName: '', fromPrefs: false };
   let needsRepoBranchPick = false;
+  let needsAccessTargetPick = false;
+  let accessTargetChoices = [];
 
   const prefs0 = readWorkGuidePrefs();
   if (els.workspaceId && prefs0.workspaceId) {
@@ -186,14 +195,21 @@ export function initWorkGuidePanel(api = {}) {
     els.resolveCard?.classList.toggle('hidden', !model.allAnswered);
     els.confirmCard?.classList.toggle('hidden', !model.allAnswered);
     els.codeSessionCard?.classList.toggle('hidden', !model.allAnswered);
-    els.repoBranchPick?.classList.toggle('hidden', !(model.allAnswered && needsRepoBranchPick));
+    els.repoBranchPick?.classList.toggle('hidden', !(model.allAnswered && needsRepoBranchPick && answers.actionId !== 'give_access'));
+    els.accessTargetPick?.classList.toggle('hidden', !(model.allAnswered && needsAccessTargetPick && answers.actionId === 'give_access'));
     els.stageEvents?.classList.toggle('hidden', !model.visibility?.events);
     els.stageRetention?.classList.toggle('hidden', !model.visibility?.retention);
     els.guideBack?.classList.toggle('hidden', model.questionNumber <= 1 && !model.allAnswered);
 
     if (els.codeSessionStatus) {
       if (!model.allAnswered) {
-        els.codeSessionStatus.textContent = 'Answer the three questions to resolve a Code Session.';
+        els.codeSessionStatus.textContent = 'Answer the three questions to resolve CairnStone values.';
+      } else if (answers.actionId === 'give_access') {
+        els.codeSessionStatus.textContent = needsAccessTargetPick
+          ? 'Give access — choose Access to what? below. Console will not invent a Code Session.'
+          : (autoResolve.code_session?.status === 'skipped'
+            ? 'Give access — Code Session not required for this intent.'
+            : (autoResolve.code_session?.detail || 'Give access ready for review.'));
       } else if (needsRepoBranchPick) {
         els.codeSessionStatus.textContent = 'No Chat-bound Code Session — pick one repo and branch below. Pins resolve server-side.';
       } else if (autoResolve.code_session?.status === 'resolved') {
@@ -346,6 +362,44 @@ export function initWorkGuidePanel(api = {}) {
     }
   }
 
+
+  function renderAccessTargetChoices() {
+    if (!els.accessTargetChoices) return;
+    const selected = String(answers.accessTargetId || '').trim();
+    if (!accessTargetChoices.length) {
+      els.accessTargetChoices.innerHTML = '';
+      if (els.accessTargetNote) {
+        els.accessTargetNote.textContent = 'No Conversation binding found — pick Something else, or bind a workspace under Advanced. Console will not create a Code Session for Give access.';
+      }
+      return;
+    }
+    els.accessTargetChoices.innerHTML = accessTargetChoices.map((choice) => {
+      const active = choice.id === selected ? ' active' : '';
+      return `<button type="button" class="work-access-target-chip${active}" role="option" aria-selected="${choice.id === selected}" data-target-id="${esc(choice.id)}" data-target-kind="${esc(choice.kind)}" data-target-value="${esc(choice.value || '')}">${esc(choice.label)}</button>`;
+    }).join('');
+    if (els.accessTargetNote) {
+      els.accessTargetNote.textContent = needsAccessTargetPick
+        ? 'Access to what? One human choice — grants stay explicit second-tap.'
+        : 'Access target captured.';
+    }
+  }
+
+  function selectAccessTarget(targetId, kind, value) {
+    answers = {
+      ...answers,
+      accessTargetId: targetId,
+      accessTargetKind: kind,
+      accessTargetValue: value || null
+    };
+    needsAccessTargetPick = false;
+    if (kind === 'other') {
+      toast('Use Advanced / Share for another object — no auto Code Session create');
+    }
+    persistAnswers();
+    renderGuide();
+    void runAutoResolve({ scrollToCode: false });
+  }
+
   async function discoverBoundSessions() {
     const actor = typeof actorId === 'function' ? actorId() : '';
     if (!actor) throw new Error('Actor ID required for Conversation Session discovery');
@@ -425,8 +479,17 @@ export function initWorkGuidePanel(api = {}) {
   async function runAutoResolve({ scrollToCode = true } = {}) {
     if (resolving) return;
     resolving = true;
+    const actionId = String(answers.actionId || '').trim();
+    const isGiveAccess = actionId === 'give_access';
+
+    // Show resolving rows before any await (skipped rows terminal for give_access).
+    autoResolve = resolvingAutoResolvePlaceholder(actionId);
+    persistAnswers();
     renderGuide();
-    toast('Resolving CairnStone values…');
+    toast(isGiveAccess ? 'Resolving access targets…' : 'Resolving CairnStone values…');
+
+    let mcpTimeout = false;
+    let mcpTimeoutDetail = '';
     try {
       const prefs = readWorkGuidePrefs();
       let workspaceId = (els.workspaceId?.value || prefs.workspaceId || '').trim();
@@ -438,21 +501,64 @@ export function initWorkGuidePanel(api = {}) {
         renderDiscoveryOptions(sessions);
       } catch (err) {
         renderDiscoveryOptions([], { error: err });
-        toast(err.message || 'Conversation Session list unavailable');
+        if (err?.code === 'MCP_TIMEOUT' || err?.blocked) {
+          mcpTimeout = true;
+          mcpTimeoutDetail = err.message || 'Conversation list timed out';
+          toast(`${mcpTimeoutDetail} — ${err.cta || 'Retry resolve'}`);
+        } else {
+          toast(err.message || 'Conversation Session list unavailable');
+        }
       }
+
+      discoveredSessions = sessions;
+      accessTargetChoices = accessTargetChoicesFromDiscovery({
+        sessions,
+        workspaceId,
+        conversationTitle: workspaceHumanMeta.conversationTitle,
+        projectName: workspaceHumanMeta.projectName
+      });
+      needsAccessTargetPick = needsAccessTargetQuestion(
+        actionId,
+        accessTargetChoices,
+        answers.accessTargetId || ''
+      );
+      renderAccessTargetChoices();
 
       const best = sessions[0] || null;
       if (best?.conversationTitle) workspaceHumanMeta.conversationTitle = best.conversationTitle;
       if (best?.projectName) workspaceHumanMeta.projectName = best.projectName;
 
-      if (best?.workspaceId && !workspaceId) {
+      // Auto-pick sole concrete target for give_access.
+      if (isGiveAccess && !needsAccessTargetPick && !answers.accessTargetId) {
+        const sole = accessTargetChoices.find((c) => c.kind !== 'other' && c.value);
+        if (sole) {
+          answers = { ...answers, accessTargetId: sole.id, accessTargetKind: sole.kind, accessTargetValue: sole.value };
+          if (sole.kind === 'workspace' && sole.value && !workspaceId) {
+            workspaceId = sole.value;
+          }
+        }
+      }
+
+      if (isGiveAccess && answers.accessTargetKind === 'workspace' && answers.accessTargetValue) {
+        workspaceId = String(answers.accessTargetValue);
+      }
+
+      if (best?.workspaceId && !workspaceId && !isGiveAccess) {
         workspaceId = best.workspaceId;
+      }
+      if (workspaceId) {
         if (els.workspaceId) els.workspaceId.value = workspaceId;
         writeWorkGuidePrefs({ workspaceId });
         syncInviteWorkspace(workspaceId);
       }
 
-      if (best?.codeSessionId) {
+      if (isGiveAccess) {
+        // Never spin on repo/branch bind and never create a Code Session by default.
+        needsRepoBranchPick = false;
+        if (answers.accessTargetKind === 'code_session' && answers.accessTargetValue) {
+          applyBoundSession(answers.accessTargetValue, { fromDiscovery: true });
+        }
+      } else if (best?.codeSessionId) {
         applyBoundSession(best.codeSessionId, { fromDiscovery: true });
         needsRepoBranchPick = false;
       } else {
@@ -462,32 +568,50 @@ export function initWorkGuidePanel(api = {}) {
       const workspaceCapability = (els.workspaceCap?.value || '').trim();
       let sourceRepos = best?.sourceRepos || [];
       let baseCommits = best?.baseCommits || [];
-      if (best?.codeSessionId && workspaceCapability) {
-        const hydrated = await hydratePinsFromCodeSession(best.codeSessionId, workspaceCapability);
-        if (hydrated.sourceRepos.length) sourceRepos = hydrated.sourceRepos;
-        if (hydrated.baseCommits.length) baseCommits = hydrated.baseCommits;
+      if (!isGiveAccess && best?.codeSessionId && workspaceCapability) {
+        try {
+          const hydrated = await hydratePinsFromCodeSession(best.codeSessionId, workspaceCapability);
+          if (hydrated.sourceRepos.length) sourceRepos = hydrated.sourceRepos;
+          if (hydrated.baseCommits.length) baseCommits = hydrated.baseCommits;
+        } catch (err) {
+          if (err?.code === 'MCP_TIMEOUT' || err?.blocked) {
+            mcpTimeout = true;
+            mcpTimeoutDetail = err.message || 'Code Session pin hydrate timed out';
+          }
+        }
       }
 
       const taskRunId = (els.dispatchTaskRunId?.value || '').trim();
+      const codeSessionForSnap = isGiveAccess
+        ? (answers.accessTargetKind === 'code_session'
+          ? { codeSessionId: answers.accessTargetValue, conversationId: best?.conversationId || null, conversationTitle: best?.conversationTitle || null }
+          : null)
+        : best;
+
       autoResolve = buildAutoResolveSnapshot({
         workspaceId,
         conversationTitle: workspaceHumanMeta.conversationTitle,
         projectName: workspaceHumanMeta.projectName,
         fromPrefs: workspaceHumanMeta.fromPrefs || Boolean(workspaceId),
         hasWorkspaceCapability,
-        codeSession: best,
-        sourceRepos,
-        baseCommits,
-        taskRunId,
-        proposalReady,
-        eventsReady: proposalReady || Boolean(taskRunId),
-        needsRepoBranchPick,
+        codeSession: codeSessionForSnap,
+        sourceRepos: isGiveAccess ? [] : sourceRepos,
+        baseCommits: isGiveAccess ? [] : baseCommits,
+        taskRunId: isGiveAccess ? '' : taskRunId,
+        proposalReady: isGiveAccess ? false : proposalReady,
+        eventsReady: isGiveAccess ? false : (proposalReady || Boolean(taskRunId)),
+        needsRepoBranchPick: isGiveAccess ? false : needsRepoBranchPick,
         idBundle: {
           workspace_id: workspaceId,
-          code_session_id: best?.codeSessionId || null,
+          code_session_id: codeSessionForSnap?.codeSessionId || null,
           conversation_id: best?.conversationId || null,
-          task_run_id: taskRunId || null
-        }
+          task_run_id: isGiveAccess ? null : (taskRunId || null)
+        },
+        actionId,
+        needsAccessTargetPick,
+        accessTargetId: answers.accessTargetId || '',
+        mcpTimeout,
+        mcpTimeoutDetail
       });
       persistAnswers();
 
@@ -497,21 +621,30 @@ export function initWorkGuidePanel(api = {}) {
         els.intentText.dispatchEvent(new Event('input'));
       }
 
-      if (best?.codeSessionId && hasWorkspaceCapability && !consoleViewKickoffDone) {
+      if (!isGiveAccess && best?.codeSessionId && hasWorkspaceCapability && !consoleViewKickoffDone) {
         consoleViewKickoffDone = true;
         els.codeLoad?.click();
       }
 
-      if (scrollToCode && best?.codeSessionId) softScrollToCodeSession();
+      if (!isGiveAccess && scrollToCode && best?.codeSessionId) softScrollToCodeSession();
 
-      toast(best?.codeSessionId
-        ? 'Resolved from Conversation bindings — review before Human Commit'
-        : 'Pick one repo + branch to bind a Code Session (pins resolve server-side)');
+      if (mcpTimeout) {
+        toast(`${mcpTimeoutDetail || 'Resolve timed out'} — Retry resolve`);
+      } else if (isGiveAccess && needsAccessTargetPick) {
+        toast('Access to what? Pick one target — Console will not invent a Code Session');
+      } else if (isGiveAccess) {
+        toast('Give access resolved — review before Human Commit (no auto-grant)');
+      } else {
+        toast(best?.codeSessionId
+          ? 'Resolved from Conversation bindings — review before Human Commit'
+          : 'Pick one repo + branch to bind a Code Session (pins resolve server-side)');
+      }
     } finally {
       resolving = false;
       renderGuide();
     }
   }
+
 
   async function bindFromRepoBranch() {
     const repo = (els.repoPick?.value || '').trim();
@@ -831,7 +964,13 @@ export function initWorkGuidePanel(api = {}) {
     if (!btn) return;
     selectWho(btn.dataset.mailbox, btn.dataset.display, btn.dataset.key);
   });
-  els.actionChoices?.addEventListener('click', (ev) => {
+  
+  els.accessTargetChoices?.addEventListener('click', (ev) => {
+    const btn = ev.target?.closest?.('[data-target-id]');
+    if (!btn) return;
+    selectAccessTarget(btn.dataset.targetId, btn.dataset.targetKind, btn.dataset.targetValue);
+  });
+els.actionChoices?.addEventListener('click', (ev) => {
     const btn = ev.target?.closest?.('[data-action-id]');
     if (!btn) return;
     selectAction(btn.dataset.actionId, btn.dataset.label);

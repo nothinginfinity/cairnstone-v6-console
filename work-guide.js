@@ -256,8 +256,8 @@ export function questionnaireModel(input = {}) {
   const current = allAnswered ? null : WORK_QUESTIONS[Math.min(questionIndex, WORK_QUESTIONS.length - 1)];
 
   const autoResolve = normalizeAutoResolve(input.autoResolve);
-  const resolveComplete = WORK_AUTO_RESOLVE_STEPS.every((s) => autoResolve[s.id]?.status === 'resolved');
-  const resolveBlocked = WORK_AUTO_RESOLVE_STEPS.some((s) => autoResolve[s.id]?.status === 'blocked');
+  const actionId = String(answers.actionId || input.actionId || '').trim();
+  const { resolveComplete, resolveBlocked } = computeResolveCompletion(autoResolve, actionId);
   const proposalReady = Boolean(input.proposalReady);
   const proposalCommitted = Boolean(input.proposalCommitted);
   const dispatched = Boolean(input.dispatched);
@@ -348,6 +348,136 @@ export function questionnaireModel(input = {}) {
     },
     intentText: composeIntentFromAnswers(answers)
   };
+}
+
+
+/** Steps give_access must not wait on — terminal as skipped when that intent is chosen. */
+export const GIVE_ACCESS_SKIP_STEP_IDS = Object.freeze([
+  'code_session',
+  'source_repos_base_commits',
+  'task_run_events'
+]);
+
+/** Statuses that end a resolve row (no spinner). */
+export function isTerminalResolveStatus(status) {
+  return status === 'resolved' || status === 'skipped' || status === 'blocked';
+}
+
+/**
+ * Required auto-resolve step ids for an intent.
+ * give_access: workspace + access readiness + ids only.
+ */
+export function requiredAutoResolveStepIds(actionId = '') {
+  const action = String(actionId || '').trim();
+  if (action === 'give_access') {
+    return WORK_AUTO_RESOLVE_STEPS
+      .map((s) => s.id)
+      .filter((id) => !GIVE_ACCESS_SKIP_STEP_IDS.includes(id));
+  }
+  return WORK_AUTO_RESOLVE_STEPS.map((s) => s.id);
+}
+
+/**
+ * Intent-aware completion: skipped counts as terminal success for required steps;
+ * blocked on a required step sets resolveBlocked.
+ */
+export function computeResolveCompletion(autoResolve = {}, actionId = '') {
+  const normalized = normalizeAutoResolve(autoResolve);
+  const required = requiredAutoResolveStepIds(actionId);
+  const resolveComplete = required.every((id) => {
+    const status = normalized[id]?.status;
+    return status === 'resolved' || status === 'skipped';
+  });
+  const resolveBlocked = required.some((id) => normalized[id]?.status === 'blocked');
+  return { resolveComplete, resolveBlocked, requiredStepIds: required };
+}
+
+/**
+ * Build honest "Access to what?" choices from discovery + prefs.
+ * Never invents Code Session ids — only surfaces what Conversation already bound.
+ */
+export function accessTargetChoicesFromDiscovery({
+  sessions = [],
+  workspaceId = '',
+  conversationTitle = '',
+  projectName = ''
+} = {}) {
+  const choices = [];
+  const seen = new Set();
+  const ws = String(workspaceId || '').trim();
+  if (ws) {
+    seen.add(`ws:${ws}`);
+    const label = String(conversationTitle || projectName || '').trim();
+    choices.push({
+      id: `workspace:${ws}`,
+      kind: 'workspace',
+      value: ws,
+      label: label ? `Workspace · ${label}` : 'This workspace'
+    });
+  }
+  for (const session of Array.isArray(sessions) ? sessions : []) {
+    const sessionWs = String(session?.workspaceId || '').trim();
+    if (sessionWs && !seen.has(`ws:${sessionWs}`)) {
+      seen.add(`ws:${sessionWs}`);
+      const label = String(session?.conversationTitle || session?.projectName || '').trim();
+      choices.push({
+        id: `workspace:${sessionWs}`,
+        kind: 'workspace',
+        value: sessionWs,
+        label: label ? `Workspace · ${label}` : 'Workspace from Chat'
+      });
+    }
+    const cs = String(session?.codeSessionId || '').trim();
+    if (cs && !seen.has(`cs:${cs}`)) {
+      seen.add(`cs:${cs}`);
+      const label = String(session?.conversationTitle || session?.projectName || '').trim();
+      choices.push({
+        id: `code_session:${cs}`,
+        kind: 'code_session',
+        value: cs,
+        label: label ? `Code Session · ${label}` : 'Code Session bound via Chat',
+        workspaceId: sessionWs || null,
+        conversationId: session?.conversationId || null
+      });
+    }
+  }
+  choices.push({
+    id: 'other_advanced',
+    kind: 'other',
+    value: null,
+    label: 'Something else (Advanced / Share)'
+  });
+  return choices;
+}
+
+/** True when give_access cannot auto-pick a single concrete target. */
+export function needsAccessTargetQuestion(actionId, choices = [], selectedTargetId = '') {
+  if (String(actionId || '').trim() !== 'give_access') return false;
+  if (String(selectedTargetId || '').trim()) return false;
+  const concrete = (Array.isArray(choices) ? choices : []).filter((c) => c.kind !== 'other' && c.value);
+  return concrete.length !== 1;
+}
+
+/** Seed all auto-resolve rows as resolving (UI before await). */
+export function resolvingAutoResolvePlaceholder(actionId = '') {
+  const action = String(actionId || '').trim();
+  const out = {};
+  for (const step of WORK_AUTO_RESOLVE_STEPS) {
+    if (action === 'give_access' && GIVE_ACCESS_SKIP_STEP_IDS.includes(step.id)) {
+      out[step.id] = {
+        status: 'skipped',
+        detail: 'Skipped for Give access — not required (no Code Session / pins / Task Run wait).',
+        value: null
+      };
+    } else {
+      out[step.id] = {
+        status: 'resolving',
+        detail: `Resolving ${step.label}…`,
+        value: null
+      };
+    }
+  }
+  return out;
 }
 
 function normalizeAutoResolve(raw) {
@@ -530,6 +660,7 @@ function writeJson(storage, key, value) {
  */
 export function codeSessionsFromConversationList(payload) {
   const rows = payload?.sessions
+    || payload?.conversations
     || payload?.conversation_sessions
     || payload?.items
     || (Array.isArray(payload) ? payload : []);
@@ -709,13 +840,22 @@ export function buildAutoResolveSnapshot({
   proposalReady = false,
   eventsReady = false,
   needsRepoBranchPick = false,
-  idBundle = {}
+  idBundle = {},
+  actionId = '',
+  needsAccessTargetPick = false,
+  accessTargetId = '',
+  mcpTimeout = false,
+  mcpTimeoutDetail = ''
 } = {}) {
+  const action = String(actionId || '').trim();
+  const isGiveAccess = action === 'give_access';
   const pins = summarizePins(sourceRepos, baseCommits);
-  const idsResolved = Boolean(
-    (codeSession?.codeSessionId || idBundle.code_session_id)
-    && (workspaceId || idBundle.workspace_id)
-  );
+  const idsResolved = isGiveAccess
+    ? Boolean(workspaceId || idBundle.workspace_id || accessTargetId)
+    : Boolean(
+      (codeSession?.codeSessionId || idBundle.code_session_id)
+      && (workspaceId || idBundle.workspace_id)
+    );
   const humanWorkspace = workspaceHumanLabel({
     workspaceId,
     workspaceLabel,
@@ -724,7 +864,7 @@ export function buildAutoResolveSnapshot({
     fromPrefs
   });
   const boundViaChat = Boolean(codeSession?.codeSessionId && codeSession?.conversationId);
-  return {
+  const out = {
     workspace: workspaceId
       ? {
         status: 'resolved',
@@ -751,32 +891,44 @@ export function buildAutoResolveSnapshot({
         detail: 'Access readiness blocked — workspace capability missing in this browser session (never stoned).',
         value: null
       },
-    code_session: codeSession?.codeSessionId
+    code_session: isGiveAccess
       ? {
-        status: 'resolved',
-        detail: boundViaChat ? 'Code Session bound via Chat' : 'Code Session bound',
-        value: codeSession.codeSessionId
-      }
-      : {
-        status: needsRepoBranchPick ? 'pending' : 'blocked',
-        detail: needsRepoBranchPick
-          ? 'Pick one repo + branch below — CairnStone resolves pins server-side (no commit hash or session-id field in default).'
-          : 'No Conversation-bound Code Session yet. Pick a repo + branch in default Work, or use Advanced Create (raw SHA / session id) as escape hatch.',
+        status: 'skipped',
+        detail: 'Skipped for Give access — Code Session not required.',
         value: null
-      },
-    source_repos_base_commits: (sourceRepos.length || baseCommits.length)
+      }
+      : (codeSession?.codeSessionId
+        ? {
+          status: 'resolved',
+          detail: boundViaChat ? 'Code Session bound via Chat' : 'Code Session bound',
+          value: codeSession.codeSessionId
+        }
+        : {
+          status: needsRepoBranchPick ? 'pending' : 'blocked',
+          detail: needsRepoBranchPick
+            ? 'Pick one repo + branch below — CairnStone resolves pins server-side (no commit hash or session-id field in default).'
+            : 'No Conversation-bound Code Session yet. Pick a repo + branch in default Work, or use Advanced Create (raw SHA / session id) as escape hatch.',
+          value: null
+        }),
+    source_repos_base_commits: isGiveAccess
       ? {
-        status: 'resolved',
-        detail: `${pins.label} · ${pins.detail}`,
-        value: { repos: pins.repos, pinCount: baseCommits.length }
-      }
-      : {
-        status: codeSession?.codeSessionId ? 'blocked' : 'pending',
-        detail: codeSession?.codeSessionId
-          ? 'Code Session bound but repos/pins not reported yet.'
-          : 'Waiting on Code Session before reading repos/pins.',
+        status: 'skipped',
+        detail: 'Skipped for Give access — repo pins not required.',
         value: null
-      },
+      }
+      : ((sourceRepos.length || baseCommits.length)
+        ? {
+          status: 'resolved',
+          detail: `${pins.label} · ${pins.detail}`,
+          value: { repos: pins.repos, pinCount: baseCommits.length }
+        }
+        : {
+          status: codeSession?.codeSessionId ? 'blocked' : 'pending',
+          detail: codeSession?.codeSessionId
+            ? 'Code Session bound but repos/pins not reported yet.'
+            : 'Waiting on Code Session before reading repos/pins.',
+          value: null
+        }),
     ids: idsResolved
       ? {
         status: 'resolved',
@@ -789,22 +941,57 @@ export function buildAutoResolveSnapshot({
         }
       }
       : {
-        status: 'pending',
-        detail: 'IDs resolve after workspace + Code Session bind.',
+        status: needsAccessTargetPick ? 'blocked' : 'pending',
+        detail: needsAccessTargetPick
+          ? 'Access to what? Pick one target below — Console will not invent a Code Session.'
+          : (isGiveAccess
+            ? 'IDs resolve after workspace / access target is known.'
+            : 'IDs resolve after workspace + Code Session bind.'),
         value: null
       },
-    task_run_events: (proposalReady || taskRunId || eventsReady)
+    task_run_events: isGiveAccess
       ? {
-        status: 'resolved',
-        detail: taskRunId
-          ? 'Task Run ready — Human Commit / Dispatch still second-tap'
-          : 'Proposal / events surface ready — Human Commit / Dispatch still second-tap',
-        value: taskRunId || 'proposal_ready'
-      }
-      : {
-        status: 'pending',
-        detail: 'Route intent after answers; never auto-dispatch.',
+        status: 'skipped',
+        detail: 'Skipped for Give access — Task Run / events not required.',
         value: null
       }
+      : ((proposalReady || taskRunId || eventsReady)
+        ? {
+          status: 'resolved',
+          detail: taskRunId
+            ? 'Task Run ready — Human Commit / Dispatch still second-tap'
+            : 'Proposal / events surface ready — Human Commit / Dispatch still second-tap',
+          value: taskRunId || 'proposal_ready'
+        }
+        : {
+          status: 'pending',
+          detail: 'Route intent after answers; never auto-dispatch.',
+          value: null
+        })
   };
+
+  if (mcpTimeout) {
+    const detail = String(mcpTimeoutDetail || 'MCP call timed out — retry resolve or open Advanced.').trim();
+    for (const id of requiredAutoResolveStepIds(action)) {
+      if (out[id]?.status === 'resolving' || out[id]?.status === 'pending') {
+        out[id] = {
+          ...out[id],
+          status: 'blocked',
+          detail,
+          value: { code: 'MCP_TIMEOUT', cta: 'Retry resolve' }
+        };
+      }
+    }
+  }
+
+  if (needsAccessTargetPick && isGiveAccess) {
+    out.workspace = {
+      status: 'blocked',
+      detail: 'Access to what? Choose one human target — Give access will not wait on Code Session or invent one.',
+      value: null,
+      label: null
+    };
+  }
+
+  return out;
 }

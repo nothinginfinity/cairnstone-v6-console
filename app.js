@@ -412,11 +412,30 @@ function saveSettings() {
 
 async function mcpCall(name, args = {}) {
   saveSettings();
-  const r = await fetch(e.runtimeUrl.value.trim(), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-    body: JSON.stringify({ jsonrpc: '2.0', id: crypto.randomUUID(), method: 'tools/call', params: { name, arguments: args } })
-  });
+  const MCP_CALL_TIMEOUT_MS = 10000; // 8–12s band — fail closed, never hang Work resolve
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), MCP_CALL_TIMEOUT_MS);
+  let r;
+  try {
+    r = await fetch(e.runtimeUrl.value.trim(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: crypto.randomUUID(), method: 'tools/call', params: { name, arguments: args } }),
+      signal: controller.signal
+    });
+  } catch (err) {
+    if (err?.name === 'AbortError') {
+      const te = new Error(`MCP call timed out after ${MCP_CALL_TIMEOUT_MS / 1000}s`);
+      te.code = 'MCP_TIMEOUT';
+      te.blocked = true;
+      te.cta = 'Retry resolve';
+      te.timeoutMs = MCP_CALL_TIMEOUT_MS;
+      throw te;
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
+  }
   if (!r.ok) throw new Error(`MCP HTTP ${r.status}`);
   const rpc = await r.json();
   if (rpc.error) throw new Error(rpc.error.message || 'MCP JSON-RPC error');
