@@ -49,6 +49,18 @@ test('navigation mapping keeps Work→code and More/Inbox sub-routes', () => {
 
 test('context bar sync helpers exist without inventing authority APIs', () => {
   assert.match(app, /function syncContextBar/);
+  assert.match(html, /id="contextChatBtn"/);
+  assert.match(html, /id="contextCodeBtn"/);
+  assert.match(html, />Chat</);
+  assert.match(app, /contextChatLabel/);
+  assert.match(app, /contextCodeLabel/);
+  assert.match(app, /initWorkGuidePanel/);
+  // Legacy Session pill removed — Chat + Code only (Code hidden until bound).
+  assert.doesNotMatch(html, /id="contextSessionBtn"/);
+  assert.doesNotMatch(html, /id="contextSessionLabel"/);
+  assert.doesNotMatch(html, /class="context-k">Session</);
+  assert.doesNotMatch(app, /contextSessionBtn/);
+  assert.doesNotMatch(app, /contextSessionLabel/);
   assert.match(app, /function openSheet/);
   assert.match(app, /chatConfigSheet/);
   assert.match(app, /evidenceDrawer/);

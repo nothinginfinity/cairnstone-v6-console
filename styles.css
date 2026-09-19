@@ -345,3 +345,15 @@ footer{color:#657083;text-align:center;font-size:.68rem;padding:16px 0 0}
 html.cs-reduced-motion *,html.cs-reduced-motion *::before,html.cs-reduced-motion *::after{scroll-behavior:auto!important;animation:none!important;transition:none!important}
 html.cs-reduced-motion .toast,html.cs-reduced-motion .toast.show{transform:translate(-50%,0)}
 html.cs-reduced-motion .universe-node.active,html.cs-reduced-motion .universe-node.focused{transform:translate(-50%,-50%)}
+
+/* Guided operator Work flow */
+.work-guide-card{border-color:rgba(128,233,193,.35);background:linear-gradient(180deg,rgba(128,233,193,.07),transparent 70%)}
+.work-guide-missing{margin:8px 0 12px;padding-left:1.1rem}
+.work-guide-missing li{margin:4px 0}
+.work-guide-note{margin-top:10px}
+.work-step-card{margin-top:12px}
+.work-discovery{display:grid;gap:10px;margin-bottom:12px}
+.work-create-details,.work-advanced{margin:12px 0;padding:10px 12px;border:1px dashed var(--line);border-radius:12px;background:rgba(255,255,255,.02)}
+.work-create-details>summary,.work-advanced>summary{cursor:pointer;font-weight:750}
+.work-stage.hidden,.work-step-card.hidden{display:none!important}
+.context-pill.hidden{display:none!important}

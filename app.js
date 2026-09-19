@@ -1,5 +1,6 @@
 import { initInvitePanel } from './invite.js';
 import { initCodeSessionPanel } from './code-session.js';
+import { initWorkGuidePanel } from './work-guide-panel.js';
 import {
   RESPONSE_LOD_MAX,
   RESPONSE_LOD_MIN,
@@ -248,8 +249,8 @@ const DEFAULT_PANEL_BY_PRIMARY = {
 
 const e = {
   runtimeUrl: $('runtimeUrl'), actorId: $('actorId'), healthButton: $('healthButton'), healthDot: $('healthDot'), healthText: $('healthText'),
-  contextScopeBtn: $('contextScopeBtn'), contextActorBtn: $('contextActorBtn'), contextSessionBtn: $('contextSessionBtn'), contextRuntimeBtn: $('contextRuntimeBtn'),
-  contextScopeLabel: $('contextScopeLabel'), contextActorLabel: $('contextActorLabel'), contextSessionLabel: $('contextSessionLabel'),
+  contextScopeBtn: $('contextScopeBtn'), contextActorBtn: $('contextActorBtn'), contextChatBtn: $('contextChatBtn'), contextCodeBtn: $('contextCodeBtn'), contextRuntimeBtn: $('contextRuntimeBtn'),
+  contextScopeLabel: $('contextScopeLabel'), contextActorLabel: $('contextActorLabel'), contextChatLabel: $('contextChatLabel'), contextCodeLabel: $('contextCodeLabel'),
   inboxSubnav: $('inboxSubnav'), moreSubnav: $('moreSubnav'),
   inboxGroupThreads: $('inboxGroupThreads'),
   scopeSheet: $('scopeSheet'), runtimeSheet: $('runtimeSheet'), chatConfigSheet: $('chatConfigSheet'), evidenceDrawer: $('evidenceDrawer'),
@@ -3050,6 +3051,7 @@ async function commitConsoleProposal() {
       : null;
     if (e.dispatchHumanCommit) e.dispatchHumanCommit.checked = false;
     setIntentResult(committed);
+    window.dispatchEvent(new CustomEvent('cairn:work-proposal-committed'));
     toast('Proposal committed');
   } catch (err) {
     setIntentResult(err.payload || { ok: false, error: err.message, accepted_state_authority: false });
@@ -3072,6 +3074,7 @@ async function commitConsoleDispatch() {
       accepted_state_authority: false
     });
     toast('Route and commit a proposed Task Run before dispatch');
+    window.dispatchEvent(new CustomEvent('cairn:work-dispatched'));
     refreshIntentControls();
     return;
   }
@@ -3275,9 +3278,14 @@ function syncContextBar({ scopePending = false } = {}) {
     else e.contextScopeLabel.textContent = scopeLabel();
   }
   if (e.contextActorLabel && e.actorId) e.contextActorLabel.textContent = e.actorId.value.trim() || '—';
-  if (e.contextSessionLabel) {
+  if (e.contextChatLabel) {
+    const tid = state.chatThreadId || (typeof ensureChatThreadId === 'function' ? ensureChatThreadId() : '');
+    e.contextChatLabel.textContent = tid ? short(tid) : '—';
+  }
+  if (e.contextCodeLabel || e.contextCodeBtn) {
     const sid = currentCodeSessionId();
-    e.contextSessionLabel.textContent = sid ? short(sid) : '—';
+    if (e.contextCodeLabel) e.contextCodeLabel.textContent = sid ? short(sid) : '—';
+    if (e.contextCodeBtn) e.contextCodeBtn.classList.toggle('hidden', !sid);
   }
   syncUniverseLanding();
   syncSettingsPreview();
@@ -3457,7 +3465,8 @@ e.healthButton.addEventListener('click', () => health().catch(() => {}));
 if (e.contextRuntimeBtn) e.contextRuntimeBtn.addEventListener('click', () => openSheet('runtimeSheet'));
 if (e.contextScopeBtn) e.contextScopeBtn.addEventListener('click', () => openSheet('scopeSheet'));
 if (e.contextActorBtn) e.contextActorBtn.addEventListener('click', () => openSheet('runtimeSheet'));
-if (e.contextSessionBtn) e.contextSessionBtn.addEventListener('click', () => panel('code'));
+if (e.contextChatBtn) e.contextChatBtn.addEventListener('click', () => panel('chat'));
+if (e.contextCodeBtn) e.contextCodeBtn.addEventListener('click', () => panel('code'));
 if (e.contextViewsBtn) e.contextViewsBtn.addEventListener('click', () => openSheet('savedViewsSheet'));
 if (e.savedViewSave) e.savedViewSave.addEventListener('click', saveCurrentSavedView);
 if (e.settingsOpenSheet) e.settingsOpenSheet.addEventListener('click', () => openSheet('runtimeSheet'));
@@ -3649,6 +3658,18 @@ initCodeSessionPanel({
   panel,
   invitePrefill: (opts) => inviteApi?.prefillForCodeSession?.(opts)
 });
+
+let workGuideApi = null;
+workGuideApi = initWorkGuidePanel({
+  mcpCall,
+  toast,
+  busy,
+  esc,
+  actorId: () => (e.actorId?.value || '').trim(),
+  panel,
+  invitePrefill: (opts) => inviteApi?.prefillForCodeSession?.(opts) || inviteApi?.prefill?.(opts)
+});
+
 refreshIntentControls();
 setEventResult(subscribeHonesty());
 applyReducedMotionClass();
