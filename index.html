@@ -376,11 +376,16 @@
           </div>
           <div id="workAccessConfirm" class="work-access-confirm hidden">
             <p id="workAccessConfirmText" class="work-access-confirm-text"></p>
-            <label class="check-row work-access-confirm-row">
+            <label class="check-row work-access-confirm-row" id="workAccessConfirmCheckRow">
               <input id="workAccessConfirmCheck" type="checkbox">
               <span>Yes — confirm this access target before Human Commit</span>
             </label>
+            <div class="invite-actions">
+              <button id="workApproveInviteBtn" class="primary hidden" type="button">Approve &amp; send invite</button>
+            </div>
+            <p id="workInviteStatus" class="muted small" aria-live="polite"></p>
           </div>
+          <div id="workGenericIntentWrap">
           <p class="muted small">Answers are composed into intent text below. Route / Commit / Dispatch remain explicit — Console never auto-mutates or auto-dispatches.</p>
           <label><span>Composed intent</span><textarea id="intentText" rows="4" placeholder="Filled from What / Who / What should they do…"></textarea></label>
           <div class="invite-actions">
@@ -400,6 +405,7 @@
             <button id="dispatchCommitButton" class="primary" type="button" disabled>Dispatch Task Run</button>
           </div>
           <pre id="intentResult" class="code-block wrap">No intent routed yet.</pre>
+          </div>
         </div>
 
         <div class="card work-code-card hidden" id="workCodeSessionCard">
