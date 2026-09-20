@@ -66,7 +66,9 @@ export function initWorkGuidePanel(api = {}) {
     busy = () => {},
     actorId = () => '',
     panel = () => {},
-    invitePrefill = null
+    invitePrefill = null,
+    operatorCall = null,
+    mintWorkspaceInvite = null
   } = api;
 
   const els = {
@@ -103,6 +105,11 @@ export function initWorkGuidePanel(api = {}) {
     accessConfirm: document.getElementById('workAccessConfirm'),
     accessConfirmText: document.getElementById('workAccessConfirmText'),
     accessConfirmCheck: document.getElementById('workAccessConfirmCheck'),
+    accessConfirmCheckRow: document.getElementById('workAccessConfirmCheckRow'),
+    approveInviteBtn: document.getElementById('workApproveInviteBtn'),
+    inviteStatus: document.getElementById('workInviteStatus'),
+    genericIntentWrap: document.getElementById('workGenericIntentWrap'),
+    stageIntent: document.getElementById('workStageIntent'),
     codeLoad: document.getElementById('codeLoad'),
     codeSurface: document.getElementById('codeSurface'),
     advancedShell: document.getElementById('workAdvancedShell'),
@@ -145,6 +152,7 @@ export function initWorkGuidePanel(api = {}) {
   let accessTargetChoices = [];
   let conversationRefs = [];
   let accessConfirmAccepted = Boolean(answers.accessConfirmAccepted);
+  let inviteState = answers.inviteState || null;
   let lastMcpTimeout = false;
 
   const prefs0 = readWorkGuidePrefs();
@@ -182,7 +190,8 @@ export function initWorkGuidePanel(api = {}) {
       taskRunId: (els.dispatchTaskRunId?.value || '').trim(),
       codeSessionLoaded,
       advancedOpen: Boolean(els.advancedShell?.open),
-      extraActors: []
+      extraActors: [],
+      inviteState
     };
   }
 
@@ -209,9 +218,16 @@ export function initWorkGuidePanel(api = {}) {
     const lightweight = isLightweightResolveAction(answers.actionId);
     els.repoBranchPick?.classList.toggle('hidden', !(model.allAnswered && needsRepoBranchPick && !lightweight));
     els.accessTargetPick?.classList.toggle('hidden', !(model.allAnswered && needsAccessTargetPick && lightweight));
-    els.accessConfirm?.classList.toggle('hidden', !(model.allAnswered && answers.actionId === 'give_access' && answers.accessTargetId && !needsAccessTargetPick));
+    const workspaceInvite = model.nextAction?.workflow === 'workspace_invite';
+    els.accessConfirm?.classList.toggle('hidden', !(model.allAnswered && answers.actionId === 'give_access' && (answers.accessTargetId || workspaceInvite) && !needsAccessTargetPick));
     els.stageEvents?.classList.toggle('hidden', !model.visibility?.events);
     els.stageRetention?.classList.toggle('hidden', !model.visibility?.retention);
+    els.genericIntentWrap?.classList.toggle('hidden', workspaceInvite);
+    els.stageIntent?.classList.toggle('hidden', workspaceInvite);
+    els.codeSessionCard?.classList.toggle('hidden', workspaceInvite || !model.allAnswered);
+    els.approveInviteBtn?.classList.toggle('hidden', !workspaceInvite || needsAccessTargetPick);
+    if (els.accessConfirmCheckRow) els.accessConfirmCheckRow.classList.toggle('hidden', workspaceInvite);
+    if (workspaceInvite && els.confirmCard) els.confirmCard.classList.remove('hidden');
     els.guideBack?.classList.toggle('hidden', model.questionNumber <= 1 && !model.allAnswered);
 
     if (els.codeSessionStatus) {
