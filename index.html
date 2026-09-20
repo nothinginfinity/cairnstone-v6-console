@@ -320,6 +320,25 @@
             <span id="workGuideStepPill" class="work-pill">What?</span>
           </div>
           <p id="workGuideSubtitle" class="muted small">Humans answer human questions. CairnStone resolves workspace, access readiness, Code Session, pins, IDs, and Task Run + events.</p>
+          <details class="work-howto" id="workHowTo">
+            <summary>How to use CairnStone · current step</summary>
+            <ol class="muted small">
+              <li>Get my workspace access (console:jared, list+read only).</li>
+              <li>Answer What / Who / What should they do.</li>
+              <li>Give access uses Approve &amp; send invite — not Route/Dispatch.</li>
+              <li>Invited actor: Claim invite with mailbox ticket (session only).</li>
+              <li>Assign still uses Human Commit then Dispatch.</li>
+            </ol>
+            <p class="muted small">Bearers stay in this browser session. Never paste them into Stones or chat.</p>
+          </details>
+          <div class="invite-actions" id="workOperatorPathActions">
+            <button id="workGetMyAccessBtn" class="secondary" type="button">Get my workspace access</button>
+            <button id="workClaimInviteBtn" class="secondary" type="button">Claim invite</button>
+          </div>
+          <label id="workClaimInviteWrap" class="hidden"><span>Invite id to claim</span>
+            <input id="workClaimInviteId" autocomplete="off" placeholder="invite id from Waiting for claim">
+          </label>
+          <p id="workOperatorPathStatus" class="muted small" aria-live="polite"></p>
           <p id="workGuideHint" class="muted small work-guide-hint">Describe the outcome in plain language. Do not paste session IDs or commit SHAs.</p>
           <ul id="workGuideMissing" class="work-guide-missing muted small"></ul>
 
@@ -516,6 +535,7 @@
             <label><span>Workspace ID</span><input id="workWorkspaceId" autocomplete="off" placeholder="ws:…"></label>
             <label><span>Workspace capability</span><input id="codeWorkspaceCap" type="password" autocomplete="off" placeholder="workspace capability (sessionStorage only)"></label>
             <div class="invite-actions">
+              <button id="workGetMyAccessAdvancedBtn" class="secondary compact-button" type="button">Get my workspace access</button>
               <button id="workWorkspaceSave" class="primary compact-button" type="button">Save workspace</button>
             </div>
           </div>
