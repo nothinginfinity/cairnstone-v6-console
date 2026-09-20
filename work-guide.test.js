@@ -32,6 +32,7 @@ import {
   accessGrantConfirmPrompt,
   conversationRefsFromList,
   isLightweightResolveAction,
+  oneNextActionModel,
   requiredAutoResolveStepIds
 } from './work-guide.js';
 
