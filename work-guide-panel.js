@@ -6,6 +6,13 @@
  */
 
 import {
+  DEFAULT_OPERATOR_ACTOR,
+  DEFAULT_OPERATOR_WORKSPACE,
+  bindCodeSessionToConversation,
+  claimWorkspaceInvite,
+  getMyWorkspaceAccess
+} from './operator-bootstrap.js';
+import {
   WORK_ACTION_CHOICES,
   accessGrantConfirmPrompt,
   accessTargetChoicesFromDiscovery,
@@ -115,6 +122,12 @@ export function initWorkGuidePanel(api = {}) {
     advancedShell: document.getElementById('workAdvancedShell'),
     workspaceId: document.getElementById('workWorkspaceId'),
     workspaceCap: document.getElementById('codeWorkspaceCap'),
+    getMyAccessBtn: document.getElementById('workGetMyAccessBtn'),
+    getMyAccessAdvancedBtn: document.getElementById('workGetMyAccessAdvancedBtn'),
+    claimInviteBtn: document.getElementById('workClaimInviteBtn'),
+    claimInviteWrap: document.getElementById('workClaimInviteWrap'),
+    claimInviteId: document.getElementById('workClaimInviteId'),
+    operatorPathStatus: document.getElementById('workOperatorPathStatus'),
     workspaceSave: document.getElementById('workWorkspaceSave'),
     addCollaborator: document.getElementById('workAddCollaboratorBtn'),
     collaboratorContinue: document.getElementById('workCollaboratorContinueBtn'),
@@ -817,6 +830,17 @@ export function initWorkGuidePanel(api = {}) {
       if (els.repoBranchNote) {
         els.repoBranchNote.textContent = `Bound ${parsed.full} @ ${branch} (pins resolved server-side; hash hidden).`;
       }
+      try {
+        await bindCodeSessionToConversation(mcpCall, {
+          actorId: actor,
+          workspaceId,
+          codeSessionId: createdId,
+          conversationId: answers.conversationId || '',
+          selectedRepo: parsed.full
+        });
+      } catch (bindErr) {
+        toast(bindErr.message || 'Conversation Session bind failed — Code Session still created');
+      }
       toast('Code Session bound from repo + branch');
       await runAutoResolve({ scrollToCode: true });
       if (!consoleViewKickoffDone && workspaceCapability) {
@@ -960,6 +984,16 @@ export function initWorkGuidePanel(api = {}) {
         || codeSessionId;
       applyBoundSession(createdId, { fromDiscovery: false });
       needsRepoBranchPick = false;
+      try {
+        await bindCodeSessionToConversation(mcpCall, {
+          actorId: actor,
+          workspaceId,
+          codeSessionId: createdId,
+          conversationId: answers.conversationId || ''
+        });
+      } catch (bindErr) {
+        toast(bindErr.message || 'Conversation Session bind failed — Code Session still created');
+      }
       toast('Code Session created (Advanced)');
       await refreshDiscovery();
       if (questionnaireModel(gatherInput()).allAnswered) await runAutoResolve({ scrollToCode: true });
@@ -1162,6 +1196,79 @@ export function initWorkGuidePanel(api = {}) {
     if (!btn) return;
     selectAction(btn.dataset.actionId, btn.dataset.label);
   });
+  function setOperatorPathStatus(text) {
+    if (els.operatorPathStatus) els.operatorPathStatus.textContent = text || '';
+  }
+
+  function persistWorkspaceCapability(workspaceId, workspaceCapability) {
+    if (els.workspaceId && workspaceId) els.workspaceId.value = workspaceId;
+    if (els.workspaceCap && workspaceCapability) els.workspaceCap.value = workspaceCapability;
+    try {
+      if (workspaceCapability) sessionStorage.setItem('cs.workspaceCapability', workspaceCapability);
+      if (workspaceId) sessionStorage.setItem('cs.workspaceId', workspaceId);
+    } catch {}
+  }
+
+  async function runGetMyWorkspaceAccess() {
+    const actor = (typeof actorId === 'function' ? actorId() : actorId) || DEFAULT_OPERATOR_ACTOR;
+    const workspaceId = (els.workspaceId?.value || DEFAULT_OPERATOR_WORKSPACE).trim() || DEFAULT_OPERATOR_WORKSPACE;
+    setOperatorPathStatus('Getting workspace access…');
+    busy(els.getMyAccessBtn || els.getMyAccessAdvancedBtn, true, 'Getting access…');
+    try {
+      const r = await getMyWorkspaceAccess({ operatorCall, mcpCall, actorId: actor, workspaceId });
+      persistWorkspaceCapability(r.workspaceId, r.workspaceCapability);
+      setOperatorPathStatus('Workspace access ready for ' + actor + ' (list + read). Capability stays in this browser session.');
+      toast('Workspace access ready');
+      renderGuide();
+    } catch (err) {
+      setOperatorPathStatus(err.message || 'Get my workspace access failed');
+      toast(err.message || 'Get my workspace access failed');
+    } finally {
+      busy(els.getMyAccessBtn || els.getMyAccessAdvancedBtn, false, 'Get my workspace access');
+    }
+  }
+
+  async function runClaimInvite() {
+    els.claimInviteWrap?.classList.remove('hidden');
+    const inviteId = String(els.claimInviteId?.value || inviteState?.inviteId || '').trim();
+    if (!inviteId) {
+      setOperatorPathStatus('Enter the invite id, then tap Claim invite again.');
+      return;
+    }
+    const actor = (typeof actorId === 'function' ? actorId() : actorId) || DEFAULT_OPERATOR_ACTOR;
+    busy(els.claimInviteBtn, true, 'Claiming…');
+    try {
+      let mailbox = '';
+      try { mailbox = sessionStorage.getItem('cs.mailboxCapability') || ''; } catch {}
+      if (!mailbox && typeof operatorCall === 'function') {
+        const issued = await operatorCall('/v1/mailbox-capabilities', {
+          method: 'POST',
+          body: { principal_actor_id: actor, scopes: ['mail.read:self'], ttl_seconds: 900 }
+        });
+        mailbox = issued && issued.mailbox_capability;
+        if (mailbox) {
+          try { sessionStorage.setItem('cs.mailboxCapability', mailbox); } catch {}
+        }
+      }
+      const r = await claimWorkspaceInvite(mcpCall, { inviteId, actorId: actor, mailboxCapability: mailbox });
+      persistWorkspaceCapability(r.workspaceId || els.workspaceId?.value, r.workspaceCapability);
+      inviteState = Object.assign({}, inviteState || {}, { status: 'claimed', inviteId });
+      answers = Object.assign({}, answers, { inviteState });
+      persistAnswers();
+      setOperatorPathStatus('Invite claimed. Workspace capability is session-only.');
+      toast('Invite claimed');
+      renderGuide();
+    } catch (err) {
+      setOperatorPathStatus(err.message || 'Claim failed');
+      toast(err.message || 'Claim failed');
+    } finally {
+      busy(els.claimInviteBtn, false, 'Claim invite');
+    }
+  }
+
+  els.getMyAccessBtn?.addEventListener('click', () => void runGetMyWorkspaceAccess());
+  els.getMyAccessAdvancedBtn?.addEventListener('click', () => void runGetMyWorkspaceAccess());
+  els.claimInviteBtn?.addEventListener('click', () => void runClaimInvite());
   els.approveInviteBtn?.addEventListener('click', () => void approveWorkspaceInvite());
   els.accessConfirmCheck?.addEventListener('change', () => {
     accessConfirmAccepted = Boolean(els.accessConfirmCheck.checked);
