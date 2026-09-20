@@ -1,4 +1,4 @@
-import { initInvitePanel } from './invite.js';
+import { initInvitePanel, mintWorkspaceInviteAndNotify } from './invite.js';
 import { initCodeSessionPanel } from './code-session.js';
 import { initWorkGuidePanel } from './work-guide-panel.js';
 import {
@@ -3684,12 +3684,18 @@ initCodeSessionPanel({
 let workGuideApi = null;
 workGuideApi = initWorkGuidePanel({
   mcpCall,
+  operatorCall,
   toast,
   busy,
   esc,
   actorId: () => (e.actorId?.value || '').trim(),
   panel,
-  invitePrefill: (opts) => inviteApi?.prefillForCodeSession?.(opts) || inviteApi?.prefill?.(opts)
+  invitePrefill: (opts) => inviteApi?.prefillForCodeSession?.(opts) || inviteApi?.prefill?.(opts),
+  mintWorkspaceInvite: (spec) => mintWorkspaceInviteAndNotify({
+    operatorCall,
+    mcpCall,
+    actorId: () => (e.actorId?.value || 'console:jared').trim()
+  }, spec)
 });
 
 refreshIntentControls();
