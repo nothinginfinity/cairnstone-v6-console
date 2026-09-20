@@ -83,6 +83,67 @@ function lifecycleLabel(row) {
   return 'Unknown';
 }
 
+export async function mintWorkspaceInviteAndNotify(api, spec = {}) {
+  const { operatorCall, mcpCall, actorId = () => 'console:jared' } = api || {};
+  const workspaceId = String(spec.workspaceId || '').trim();
+  const principal = String(spec.principalActorId || '').trim();
+  const scopes = Array.isArray(spec.scopes) && spec.scopes.length ? spec.scopes : ['ls', 'read'];
+  const role = String(spec.membershipRole || 'drafter').trim() || 'drafter';
+  const ttl = Number(spec.ttlSeconds || 86400);
+  if (!workspaceId) throw new Error('workspace_id required');
+  if (!principal) throw new Error('principal_actor_id required');
+  if (!operatorCall) throw new Error('operatorCall required');
+  const minted = await operatorCall('/v1/workspace-invites', {
+    method: 'POST',
+    body: { workspace_id: workspaceId, principal_actor_id: principal, membership_role: role, scopes, ttl_seconds: ttl }
+  });
+  if (minted && minted.workspace_capability) throw new Error('mint_returned_bearer_forbidden');
+  const invite = minted.invite || minted;
+  const messageId = 'msg:v776b-invite-' + (invite.invite_id || Date.now());
+  const threadId = 'workspace-invite-' + workspaceId;
+  let noticeSent = false;
+  if (typeof mcpCall === 'function') {
+    try {
+      await mcpCall('cairnstone_send_message', {
+        from: typeof actorId === 'function' ? actorId() : actorId,
+        to: [principal],
+        content: [
+          'Workspace invite for ' + principal + '.',
+          'Workspace: ' + (invite.workspace_id || workspaceId),
+          'Invite id: ' + (invite.invite_id || ''),
+          'Role: ' + (invite.membership_role || role),
+          'Scopes: ' + (invite.scopes || scopes).join(', '),
+          spec.instruction || 'Claim with cairnstone_workspace_invite_claim using your mailbox capability. Do not paste workspace bearers into Stones or chat.'
+        ].filter(Boolean).join('\n'),
+        message_id: messageId,
+        thread_id: threadId,
+        intent: 'handoff',
+        priority: 'high',
+        subject: 'Workspace invite: ' + workspaceId,
+        labels: ['handoff', 'task-open', 'work-plane', 'scope-bound'],
+        scope: { mode: 'single_chain', chains: ['cairnstone-v6-project-memory'] }
+      });
+      noticeSent = true;
+    } catch {
+      noticeSent = false;
+    }
+  }
+  const row = stripSecrets({
+    invite_id: invite.invite_id,
+    workspace_id: invite.workspace_id || workspaceId,
+    principal_actor_id: invite.principal_actor_id || principal,
+    membership_role: invite.membership_role || role,
+    invite_fingerprint: invite.invite_fingerprint,
+    message_id: messageId,
+    thread_id: threadId,
+    notice_sent: noticeSent,
+    inbox_status: noticeSent ? 'delivered' : 'unknown',
+    invite
+  });
+  saveTracked([row].concat(loadTracked()).filter((item, i, all) => all.findIndex((x) => x.invite_id === item.invite_id) === i));
+  return row;
+}
+
 export function initInvitePanel(api) {
   const {
     mcpCall,
