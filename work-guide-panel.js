@@ -440,8 +440,18 @@ export function initWorkGuidePanel(api = {}) {
       els.intentHumanCommit.disabled = !accessConfirmAccepted;
       if (!accessConfirmAccepted) els.intentHumanCommit.checked = false;
     }
-    if (els.intentCommitProposal) {
-      // app.js also gates on checkbox; keep disabled until confirm when visible
+    if (els.approveInviteBtn) {
+      els.approveInviteBtn.classList.toggle('hidden', !show || answers.accessTargetKind === 'code_session');
+      els.approveInviteBtn.disabled = Boolean(inviteState && (inviteState.status === 'waiting' || inviteState.status === 'claimed'));
+    }
+    if (els.inviteStatus) {
+      if (inviteState && inviteState.status === 'claimed') els.inviteStatus.textContent = (answers.whoDisplay || 'Principal') + ' has read access.';
+      else if (inviteState && inviteState.status === 'waiting') els.inviteStatus.textContent = 'Waiting for ' + (answers.whoDisplay || 'principal') + ' to claim.';
+      else els.inviteStatus.textContent = show && answers.accessTargetKind !== 'code_session'
+        ? 'Approve & send invite is Human Commit. Scopes: list + read only.'
+        : '';
+    }
+    if (answers.accessTargetKind === 'code_session' && els.intentCommitProposal) {
       els.intentCommitProposal.disabled = !accessConfirmAccepted;
     }
   }
@@ -961,6 +971,54 @@ export function initWorkGuidePanel(api = {}) {
     }
   }
 
+  async function approveWorkspaceInvite() {
+    const principal = String(answers.whoMailboxId || '').trim();
+    const workspaceId = String(
+      answers.accessTargetKind === 'workspace'
+        ? (answers.accessTargetValue || els.workspaceId?.value || '')
+        : (els.workspaceId?.value || answers.accessTargetValue || '')
+    ).trim();
+    if (!principal) { toast('Pick who should receive access first'); return; }
+    if (!workspaceId) { toast('No workspace bound'); return; }
+    if (typeof mintWorkspaceInvite !== 'function') { toast('Invite mint is not wired'); return; }
+    busy(els.approveInviteBtn || els.guidePrimaryCta, true, 'Sending invite…');
+    try {
+      const row = await mintWorkspaceInvite({ workspaceId, principalActorId: principal, scopes: ['ls', 'read'], membershipRole: 'drafter' });
+      inviteState = { status: 'waiting', inviteId: row && row.invite_id, principal, workspaceId, noticeSent: Boolean(row && row.notice_sent) };
+      answers = Object.assign({}, answers, { inviteState });
+      persistAnswers();
+      toast('Invite sent — waiting for claim');
+      renderGuide();
+    } catch (err) {
+      toast(err.message || 'Invite mint failed');
+    } finally {
+      busy(els.approveInviteBtn || els.guidePrimaryCta, false, 'Approve & send invite');
+    }
+  }
+
+  async function refreshInviteStatus() {
+    const inviteId = inviteState && inviteState.inviteId;
+    if (!inviteId || typeof operatorCall !== 'function') {
+      toast('Waiting for claim');
+      return;
+    }
+    try {
+      const r = await operatorCall('/v1/workspace-invites/' + encodeURIComponent(inviteId));
+      const state = String((r && r.invite && r.invite.state) || (r && r.state) || '').toLowerCase();
+      if (state === 'claimed') {
+        inviteState = Object.assign({}, inviteState, { status: 'claimed' });
+        answers = Object.assign({}, answers, { inviteState });
+        persistAnswers();
+        toast((answers.whoDisplay || 'Principal') + ' has read access');
+      } else {
+        toast('Invite still ' + (state || 'pending'));
+      }
+      renderGuide();
+    } catch (err) {
+      toast(err.message || 'Invite refresh failed');
+    }
+  }
+
   function runPrimaryCta() {
     const action = els.guidePrimaryCta?.dataset.action
       || questionnaireModel(gatherInput()).primaryCta.action;
@@ -969,6 +1027,15 @@ export function initWorkGuidePanel(api = {}) {
       case 'answer_who':
       case 'answer_action':
         return answerCurrentAndAdvance();
+      case 'approve_workspace_invite':
+        return void approveWorkspaceInvite();
+      case 'refresh_invite':
+        return void refreshInviteStatus();
+      case 'focus_access_target':
+        els.accessTargetPick?.classList.remove('hidden');
+        return;
+      case 'noop_invite_done':
+        return;
       case 'run_auto_resolve':
         return void runAutoResolve();
       case 'noop_resolving':
@@ -1095,6 +1162,7 @@ export function initWorkGuidePanel(api = {}) {
     if (!btn) return;
     selectAction(btn.dataset.actionId, btn.dataset.label);
   });
+  els.approveInviteBtn?.addEventListener('click', () => void approveWorkspaceInvite());
   els.accessConfirmCheck?.addEventListener('change', () => {
     accessConfirmAccepted = Boolean(els.accessConfirmCheck.checked);
     answers = { ...answers, accessConfirmAccepted };
