@@ -177,6 +177,7 @@ const state = {
   inbox: [],
   activity: [],
   conversations: [],
+  conversationAggregate: null,
   selectedConversation: null,
   stones: [],
   selectedStone: null,
@@ -320,7 +321,7 @@ const e = {
   mirrorOwner: $('mirrorOwner'), mirrorRepo: $('mirrorRepo'), mirrorBranch: $('mirrorBranch'), mirrorPrefix: $('mirrorPrefix'), handoffButton: $('handoffButton'), handoffResult: $('handoffResult'),
   activityRefresh: $('activityRefresh'), activityActors: $('activityActors'), activityFilter: $('activityFilter'), activityGroupThreads: $('activityGroupThreads'), activityList: $('activityList'),
   activityActorPicker: $('activityActorPicker'), activityActorMeta: $('activityActorMeta'), activityActorNavLabel: $('activityActorNavLabel'),
-  conversationsRefresh: $('conversationsRefresh'), conversationsSearch: $('conversationsSearch'), conversationsList: $('conversationsList'),
+  conversationsRefresh: $('conversationsRefresh'), conversationsSearch: $('conversationsSearch'), conversationsList: $('conversationsList'), conversationAggregateNote: $('conversationAggregateNote'),
   conversationSyncMode: $('conversationSyncMode'), conversationSyncPayload: $('conversationSyncPayload'), conversationSyncNote: $('conversationSyncNote'),
   conversationDetailTitle: $('conversationDetailTitle'), conversationDetailMeta: $('conversationDetailMeta'), conversationDigest: $('conversationDigest'), conversationTurns: $('conversationTurns'),
   conversationJevNext: $('conversationJevNext'), conversationJevResult: $('conversationJevResult'),
@@ -1876,18 +1877,45 @@ function syncConversationPolicyUi() {
   saveSettings();
 }
 
+function renderConversationAggregateNote() {
+  if (!e.conversationAggregateNote) return;
+  const aggregate = state.conversationAggregate;
+  if (!aggregate) {
+    e.conversationAggregateNote.textContent = 'Runtime will prefer the authenticated account aggregate when available; legacy runtimes fall back to one actor-scoped Conversation Session list.';
+    return;
+  }
+  if (aggregate.ok === true) {
+    const counts = aggregate.counts || {};
+    const identities = aggregate.identity_scope?.identities?.length ?? counts.identities ?? 0;
+    e.conversationAggregateNote.textContent = `Authenticated account aggregate · ${identities} identities · ${counts.mailbox_threads ?? 0} mailbox threads · ${counts.task_runs ?? 0} task runs · ${counts.events ?? 0} events. Visibility comes from server-resolved active connections; Console filters only narrow it.`;
+    return;
+  }
+  const detail = aggregate.error ? ` (${aggregate.error})` : '';
+  e.conversationAggregateNote.textContent = `Legacy actor fallback${detail}. Cross-provider account correlation is unavailable on this runtime; no broader visibility is inferred by the Console.`;
+}
+
 async function refreshConversations() {
   const actor = (e.actorId?.value || '').trim();
-  if (!actor) return toast('Actor ID required for Conversation Session discovery');
   busy(e.conversationsRefresh, true, 'Loading…');
   if (e.conversationsList) e.conversationsList.innerHTML = '<p class="muted">Loading Conversation Sessions…</p>';
   try {
-    const r = await mcpCall('cairnstone_conversation_session_list', { actor_id: actor, limit: 50 });
-    state.conversations = (r.conversations || []).map(normalizeConversationSession);
+    try {
+      const aggregate = await mcpCall('cairnstone_unified_conversations', { limit: 50 });
+      state.conversationAggregate = aggregate;
+      state.conversations = (aggregate.conversations || []).map(normalizeConversationSession);
+    } catch (aggregateError) {
+      if (!actor) throw new Error('Actor ID required for legacy Conversation Session fallback');
+      const r = await mcpCall('cairnstone_conversation_session_list', { actor_id: actor, limit: 50 });
+      state.conversationAggregate = { ok: false, fallback: true, error: aggregateError?.message || 'unified_conversations_unavailable' };
+      state.conversations = (r.conversations || []).map(normalizeConversationSession);
+    }
+    renderConversationAggregateNote();
     renderConversations();
     toast(`${state.conversations.length} conversation${state.conversations.length === 1 ? '' : 's'} visible to ${actor}`);
   } catch (err) {
     state.conversations = [];
+    state.conversationAggregate = null;
+    renderConversationAggregateNote();
     if (e.conversationsList) e.conversationsList.innerHTML = `<p class="muted">${esc(err.message)}</p>`;
     toast(err.message);
   } finally {
