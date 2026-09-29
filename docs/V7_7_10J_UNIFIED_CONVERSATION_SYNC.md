@@ -58,7 +58,9 @@ A companion runtime feature branch now implements `cairnstone_unified_conversati
 
 The Console prefers that aggregate and does **not** use the editable Actor ID to widen account visibility. If the runtime is older or the Console is still using legacy unauthenticated `/mcp`, it falls back to `cairnstone_conversation_session_list` for the configured actor and labels that fallback.
 
-The static Console does not yet establish a Core-auth/OAuth session against `/mcp/core-auth`, so the account-wide aggregate is wired but not yet available end to end in the current undeployed branch.
+The Console feature branch now includes a public-client Core-auth PKCE S256 flow against `/mcp/core-auth`. It uses a static CIMD document (`oauth-client-metadata.json`), keeps access/refresh tokens in `sessionStorage` only, rotates the refresh token on expiry/401, and explicitly revokes/clears the browser session on disconnect. The legacy `/mcp` path remains available and unchanged.
+
+This is still **feature-branch implementation, not an end-to-end live proof**: the CIMD document is served from the GitHub Pages Console origin and is not reachable from the branch until that Console version is published. Therefore the account aggregate is code-wired with a real auth path, but production OAuth/aggregate canary remains a deployment-time gate.
 
 ## Synthesis path
 
@@ -71,8 +73,8 @@ The first slice ships deterministic digest + JEV next-action scoring and leaves 
 
 ## Next build slices
 
-1. **Authenticated Console session**: wire the static Console to Core-auth/OAuth so `cairnstone_unified_conversations` can run with server-derived account identity rather than falling back to one actor.
-2. **Standing TurnSync policy**: make project/workspace `ON | OFF | ASK` and payload mode deterministic/auditable. The replay-safe append bridge intentionally returns `sync_policy_evaluated:false` until this exists.
+1. **Standing TurnSync policy**: make project/workspace `ON | OFF | ASK` and payload mode deterministic/auditable. The replay-safe append bridge intentionally returns `sync_policy_evaluated:false` until this exists.
+2. **Core-auth Pages canary**: publish/test the CIMD + PKCE flow, verify refresh rotation/revoke, then exercise `cairnstone_unified_conversations` across multiple active provider connections with no cross-account leakage.
 3. **Provider/host end-of-turn integration**: call `cairnstone_turnsync_append` after eligible user/assistant turns. Prompt/instruction-driven calls are interim; deterministic host lifecycle hooks are preferred where providers expose them.
 4. **Bounded conversation synthesis**: normalize a selected group into a provider-neutral pack and produce summary/compare/blocker/next-step outputs with provenance.
 5. **Dispatch from the grouped view**: reuse existing AC1/Task Run controls to message one actor, a selected subset, or all relevant actors.
@@ -85,5 +87,6 @@ The first slice ships deterministic digest + JEV next-action scoring and leaves 
 - No accepted-state mutation is introduced.
 - Exact identities are preserved; no actor is inferred from role/provider labels.
 - Empty/loading/error states are honest.
-- TurnSync helper tests are present; the current feature-branch checkpoint distinguishes syntax/static validation from an actual Node test-suite run.
+- TurnSync + Core-auth helper tests are present; the current feature-branch checkpoint distinguishes syntax/static validation from an actual Node test-suite run.
+- Core-auth browser tokens are session-local, are never reused as operator tokens, and do not become accepted-state authority.
 - JEV is labeled and invoked only as a scorer/router for next actions.
