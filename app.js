@@ -3825,6 +3825,17 @@ if (e.contextViewsBtn) e.contextViewsBtn.addEventListener('click', () => openShe
 if (e.savedViewSave) e.savedViewSave.addEventListener('click', saveCurrentSavedView);
 if (e.settingsOpenSheet) e.settingsOpenSheet.addEventListener('click', () => openSheet('runtimeSheet'));
 if (e.runtimeSheetRecheck) e.runtimeSheetRecheck.addEventListener('click', () => health().catch(() => {}));
+if (e.coreAuthConnect) e.coreAuthConnect.addEventListener('click', async () => {
+  busy(e.coreAuthConnect, true, 'Opening sign-in…');
+  try { await startCoreAuth(); } catch (err) { toast(err.message || 'Core sign-in could not start'); }
+  finally { busy(e.coreAuthConnect, false, 'Connect Core account'); }
+});
+if (e.coreAuthSignOut) e.coreAuthSignOut.addEventListener('click', async () => {
+  busy(e.coreAuthSignOut, true, 'Disconnecting…');
+  try { await signOutCoreAuth(); toast('Core account disconnected from this Console session'); }
+  catch (err) { toast(err.message || 'Core disconnect failed'); }
+  finally { busy(e.coreAuthSignOut, false, 'Disconnect Core'); }
+});
 if (e.universeOpenScope) e.universeOpenScope.addEventListener('click', () => openSheet('scopeSheet'));
 if (e.universeOpenRuntime) e.universeOpenRuntime.addEventListener('click', () => openSheet('runtimeSheet'));
 if (e.openChatConfig) e.openChatConfig.addEventListener('click', () => openSheet('chatConfigSheet'));
@@ -3991,6 +4002,13 @@ if (codeSessionInput) {
 }
 
 loadSettings();
+renderCoreAuthStatus();
+try {
+  if (await handleCoreAuthCallback()) toast('Core account connected');
+} catch (err) {
+  renderCoreAuthStatus();
+  toast(err.message || 'Core OAuth callback failed');
+}
 syncConversationPolicyUi();
 renderChatMode();
 syncContextBar();
