@@ -22,9 +22,11 @@ The first slice deliberately reuses live `cairnstone-conversation-session-v1` AP
 
 ## Existing runtime contracts used
 
-- `cairnstone_conversation_session_list`
+- `cairnstone_unified_conversations` — preferred authenticated account aggregate on the companion runtime feature branch.
+- `cairnstone_conversation_session_list` — legacy actor-scoped fallback when authenticated aggregation is unavailable.
 - `cairnstone_conversation_session_get`
-- future provider bridge: `cairnstone_conversation_session_append_turn`
+- `cairnstone_turnsync_append` — replay-safe authenticated end-of-turn bridge on the companion runtime feature branch.
+- low-level compatibility primitive: `cairnstone_conversation_session_append_turn`
 - optional scorer: `ask_jev`
 
 Conversation history remains operational state:
@@ -36,10 +38,9 @@ Conversation history remains operational state:
 
 ## TurnSync ingestion contract
 
-The provider-side bridge should append eligible turns with stable identities:
+The provider-side bridge should append eligible turns with stable identities. The new `cairnstone_turnsync_append` bridge owns the Conversation Session revision/CAS retry mechanics server-side, so provider hooks do not supply `base_revision`:
 
 - `conversation_id`
-- CAS `base_revision`
 - `turn_id`
 - `message_id`
 - `role`
@@ -49,19 +50,15 @@ The provider-side bridge should append eligible turns with stable identities:
 - `response_ids`, `tool_receipt_refs`, `attachment_refs`, `object_refs`, `task_run_ids` when relevant
 - routing/intent metadata only when explicit
 
-The helper `buildAppendTurnArgs` validates the client-side shape and preserves the worker's CAS boundary. It does not grant authority.
+The helper `buildAppendTurnArgs` remains useful for the low-level compatibility path. The preferred bootstrap provider path is now `cairnstone_turnsync_append`, which constrains actor identity to the authenticated connection and makes exact duplicate turn/message identities replay-safe. It does not grant accepted-state authority.
 
-## Important boundary: visibility vs global operator aggregation
+## Important boundary: authenticated operator aggregation
 
-Today `cairnstone_conversation_session_list` is actor-membership oriented. The Console therefore shows sessions visible to the actor entered in the context bar. A true operator-wide aggregate across all providers should be added as an explicit, policy-aware runtime read model rather than bypassing membership semantics in the browser.
+A companion runtime feature branch now implements `cairnstone_unified_conversations`. It derives the visible actor/provider set server-side from the authenticated Core account's active connections, reuses the existing membership/recipient-aware read paths, de-duplicates correlated Conversation Sessions, AC1 threads, Task Runs, and event projections, and retains `visible_via[]` provenance.
 
-That runtime aggregation is a follow-on slice and is the correct place to combine:
+The Console prefers that aggregate and does **not** use the editable Actor ID to widen account visibility. If the runtime is older or the Console is still using legacy unauthenticated `/mcp`, it falls back to `cairnstone_conversation_session_list` for the configured actor and labels that fallback.
 
-1. Conversation Session turns,
-2. AC1/Messages thread correlation,
-3. task/event state,
-4. provider/source identity,
-5. per-actor completion/blocker state.
+The static Console does not yet establish a Core-auth/OAuth session against `/mcp/core-auth`, so the account-wide aggregate is wired but not yet available end to end in the current undeployed branch.
 
 ## Synthesis path
 
@@ -74,11 +71,12 @@ The first slice ships deterministic digest + JEV next-action scoring and leaves 
 
 ## Next build slices
 
-1. **Provider end-of-turn bridge**: project-scoped standing authorization and idempotent append after eligible user/assistant turns. Prompt/instruction-driven calls are an interim bridge; deterministic host lifecycle hooks are preferred where providers expose them.
-2. **Operator aggregate read model**: one Console query that returns correlated Conversation Sessions + AC1/Messages threads across selected actors without weakening mailbox/session boundaries.
-3. **Bounded conversation synthesis**: normalize a selected group into a provider-neutral pack and produce summary/compare/blocker/next-step outputs with provenance.
-4. **Dispatch from the grouped view**: reuse existing AC1/Task Run controls to message one actor, a selected subset, or all relevant actors.
-5. **Mobile Messages convergence**: user-to-user and agent-to-agent message threads appear in the same conversation graph when policy allows.
+1. **Authenticated Console session**: wire the static Console to Core-auth/OAuth so `cairnstone_unified_conversations` can run with server-derived account identity rather than falling back to one actor.
+2. **Standing TurnSync policy**: make project/workspace `ON | OFF | ASK` and payload mode deterministic/auditable. The replay-safe append bridge intentionally returns `sync_policy_evaluated:false` until this exists.
+3. **Provider/host end-of-turn integration**: call `cairnstone_turnsync_append` after eligible user/assistant turns. Prompt/instruction-driven calls are interim; deterministic host lifecycle hooks are preferred where providers expose them.
+4. **Bounded conversation synthesis**: normalize a selected group into a provider-neutral pack and produce summary/compare/blocker/next-step outputs with provenance.
+5. **Dispatch from the grouped view**: reuse existing AC1/Task Run controls to message one actor, a selected subset, or all relevant actors.
+6. **Mobile Messages convergence**: user-to-user and agent-to-agent message threads appear in the same conversation graph when policy allows.
 
 ## Acceptance criteria for 10j first slice
 
@@ -87,5 +85,5 @@ The first slice ships deterministic digest + JEV next-action scoring and leaves 
 - No accepted-state mutation is introduced.
 - Exact identities are preserved; no actor is inferred from role/provider labels.
 - Empty/loading/error states are honest.
-- TurnSync helper tests pass.
+- TurnSync helper tests are present; the current feature-branch checkpoint distinguishes syntax/static validation from an actual Node test-suite run.
 - JEV is labeled and invoked only as a scorer/router for next actions.
