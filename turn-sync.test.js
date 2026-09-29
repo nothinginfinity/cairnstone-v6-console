@@ -18,6 +18,10 @@ const sample = {
   session_revision: 3,
   created_by: 'console:jared',
   selected_actors: ['chatgpt:cairnstone-v6', 'claude:cairnstone-v6'],
+  visible_via: [
+    { actor_id: 'chatgpt:cairnstone-v6', client_families: ['chatgpt'], connection_ids: ['conn_chatgpt'], identity_kinds: ['routing_alias'] },
+    { actor_id: 'grok:cairnstone-v6', client_families: ['grok'], connection_ids: ['conn_grok'], identity_kinds: ['routing_alias'] }
+  ],
   selected_chain: 'cairnstone-v6-project-memory',
   turns: [
     { turn_id: 'turn:1', message_id: 'cmsg:1', seq: 1, role: 'user', actor_id: 'console:jared', turn_type: 'task', content_preview: 'Check registration' },
@@ -45,6 +49,8 @@ describe('Conversation normalization', () => {
     assert.equal(s.turns[1].turn_id, 'turn:2');
     assert.equal(s.turns[1].message_id, 'cmsg:2');
     assert.ok(s.participants.includes('claude:cairnstone-v6'));
+    assert.equal(s.visible_via.length, 2);
+    assert.equal(s.visible_via[1].client_families[0], 'grok');
     assert.equal(s.accepted_state_authority, false);
   });
 
@@ -57,6 +63,7 @@ describe('Conversation normalization', () => {
   it('searches ids, actors and previews', () => {
     assert.equal(conversationSearchMatches(sample, 'claude'), true);
     assert.equal(conversationSearchMatches(sample, 'tool missing'), true);
+    assert.equal(conversationSearchMatches(sample, 'conn_grok'), true);
     assert.equal(conversationSearchMatches(sample, 'unrelated'), false);
   });
 
@@ -64,6 +71,7 @@ describe('Conversation normalization', () => {
     const d = conversationDigest(sample);
     assert.equal(d.turn_count, 2);
     assert.deepEqual(d.unresolved_actor_ids, ['claude:cairnstone-v6']);
+    assert.equal(d.visible_via.length, 2);
     assert.match(d.note, /not an LLM summary/i);
   });
 });
