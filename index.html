@@ -868,6 +868,11 @@ grok-bot:cairnstone-v6</textarea></label>
       <div class="sheet-body">
         <p class="muted small">Console actions never grant delegated execution or mutation authority. Values are browser-local only.</p>
         <label><span>Runtime MCP</span><input id="runtimeUrl" autocomplete="url"></label>
+        <div class="invite-actions">
+          <button id="coreAuthConnect" class="primary" type="button">Connect Core account</button>
+          <button id="coreAuthSignOut" class="secondary" type="button" disabled>Disconnect Core</button>
+        </div>
+        <p id="coreAuthStatus" class="muted small" aria-live="polite">Core account not connected. Legacy MCP remains available.</p>
         <label><span>Actor ID</span><input id="actorId" value="console:jared" autocomplete="off"></label>
         <div class="invite-actions">
           <button id="runtimeSheetRecheck" class="primary" type="button">Recheck health</button>
