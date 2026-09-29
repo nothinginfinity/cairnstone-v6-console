@@ -10,6 +10,9 @@ export const TURN_ROLES = Object.freeze(['user', 'assistant', 'system', 'tool', 
 const uniq = values => [...new Set((values || []).filter(Boolean).map(String))];
 const text = value => String(value ?? '').trim();
 const list = value => Array.isArray(value) ? value.filter(Boolean) : [];
+const numberOrNull = value => (value === null || value === undefined || value === '')
+  ? null
+  : (Number.isFinite(Number(value)) ? Number(value) : null);
 
 export function normalizeTurnSyncPolicy(raw = {}) {
   const mode = TURN_SYNC_MODES.includes(raw.mode) ? raw.mode : 'ask';
@@ -42,7 +45,7 @@ export function normalizeConversationTurn(turn = {}) {
     turn_id: text(turn.turn_id) || null,
     conversation_id: text(turn.conversation_id) || null,
     message_id: text(turn.message_id) || null,
-    seq: Number.isFinite(Number(turn.seq)) ? Number(turn.seq) : null,
+    seq: numberOrNull(turn.seq),
     role: TURN_ROLES.includes(turn.role) ? turn.role : 'operational',
     turn_type: text(turn.turn_type) || 'message',
     actor_id: text(turn.actor_id) || text(turn.routing_envelope?.actor_id) || null,
@@ -74,7 +77,7 @@ export function normalizeConversationSession(session = {}) {
     schema: session.schema || 'cairnstone-conversation-session-v1',
     conversation_id: text(session.conversation_id) || null,
     status: text(session.status) || 'active',
-    session_revision: Number.isFinite(Number(session.session_revision)) ? Number(session.session_revision) : null,
+    session_revision: numberOrNull(session.session_revision),
     created_by: text(session.created_by) || null,
     created_at: text(session.created_at) || null,
     updated_at: text(session.updated_at) || null,
@@ -104,9 +107,11 @@ export function latestTurnsByActor(turns = []) {
     const prev = map.get(turn.actor_id);
     const prevSeq = prev?.seq ?? -1;
     const nextSeq = turn.seq ?? -1;
-    if (!prev || nextSeq >= prevSeq || new Date(turn.created_at || 0) >= new Date(prev.created_at || 0)) {
-      map.set(turn.actor_id, turn);
-    }
+    const newer = !prev
+      || (prev.seq != null && turn.seq != null
+        ? nextSeq >= prevSeq
+        : new Date(turn.created_at || 0) >= new Date(prev.created_at || 0));
+    if (newer) map.set(turn.actor_id, turn);
   }
   return [...map.entries()].map(([actor_id, turn]) => ({ actor_id, turn }));
 }
@@ -153,6 +158,7 @@ export function conversationDigest(session) {
 }
 
 export function buildAppendTurnArgs({ conversationId, actorId, baseRevision, turn } = {}) {
+  const rawRole = text(turn?.role);
   const t = normalizeConversationTurn(turn || {});
   const errors = [];
   if (!text(conversationId)) errors.push('conversation_id required');
@@ -160,7 +166,7 @@ export function buildAppendTurnArgs({ conversationId, actorId, baseRevision, tur
   if (!Number.isInteger(Number(baseRevision)) || Number(baseRevision) < 1) errors.push('base_revision must be a positive integer');
   if (!t.turn_id) errors.push('turn_id required');
   if (!t.message_id) errors.push('message_id required');
-  if (!TURN_ROLES.includes(t.role)) errors.push('unsupported role');
+  if (!TURN_ROLES.includes(rawRole)) errors.push('unsupported role');
   if (t.content_preview.length > 512) errors.push('content_preview exceeds 512 characters');
   if (errors.length) return { ok: false, errors, accepted_state_authority: false };
   return {
