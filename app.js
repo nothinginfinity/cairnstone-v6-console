@@ -33,6 +33,14 @@ import {
   sortMessagesNewestFirst
 } from './comms-hub.js';
 import {
+  buildJevNextActionArgs,
+  buildNextActionCandidates,
+  conversationDigest,
+  conversationSearchMatches,
+  normalizeConversationSession,
+  normalizeTurnSyncPolicy
+} from './turn-sync.js';
+import {
   ACTIVITY_NAV_STORE_KEY,
   HANDOFF_NAV_STORE_KEY,
   INBOX_NAV_STORE_KEY,
@@ -168,6 +176,8 @@ const state = {
   chatThreadId: null,
   inbox: [],
   activity: [],
+  conversations: [],
+  selectedConversation: null,
   stones: [],
   selectedStone: null,
   authorizations: [],
@@ -231,6 +241,7 @@ const PRIMARY_BY_PANEL = {
   inbox: 'inbox',
   handoff: 'inbox',
   activity: 'inbox',
+  conversations: 'inbox',
   stones: 'more',
   evidence: 'more',
   access: 'more',
@@ -309,6 +320,10 @@ const e = {
   mirrorOwner: $('mirrorOwner'), mirrorRepo: $('mirrorRepo'), mirrorBranch: $('mirrorBranch'), mirrorPrefix: $('mirrorPrefix'), handoffButton: $('handoffButton'), handoffResult: $('handoffResult'),
   activityRefresh: $('activityRefresh'), activityActors: $('activityActors'), activityFilter: $('activityFilter'), activityGroupThreads: $('activityGroupThreads'), activityList: $('activityList'),
   activityActorPicker: $('activityActorPicker'), activityActorMeta: $('activityActorMeta'), activityActorNavLabel: $('activityActorNavLabel'),
+  conversationsRefresh: $('conversationsRefresh'), conversationsSearch: $('conversationsSearch'), conversationsList: $('conversationsList'),
+  conversationSyncMode: $('conversationSyncMode'), conversationSyncPayload: $('conversationSyncPayload'), conversationSyncNote: $('conversationSyncNote'),
+  conversationDetailTitle: $('conversationDetailTitle'), conversationDetailMeta: $('conversationDetailMeta'), conversationDigest: $('conversationDigest'), conversationTurns: $('conversationTurns'),
+  conversationJevNext: $('conversationJevNext'), conversationJevResult: $('conversationJevResult'),
   stonesRefresh: $('stonesRefresh'), stonesQuery: $('stonesQuery'), stonesHead: $('stonesHead'), stonesList: $('stonesList'), stoneDetailTitle: $('stoneDetailTitle'), stoneDetailMeta: $('stoneDetailMeta'),
   stoneDetailSummary: $('stoneDetailSummary'), stoneDetailRaw: $('stoneDetailRaw'), copyStoneHash: $('copyStoneHash'),
   stonesEmptyState: $('stonesEmptyState'), stonesDetailBlock: $('stonesDetailBlock'), stonesRawBlock: $('stonesRawBlock'),
@@ -382,6 +397,8 @@ function loadSettings() {
   e.operatorToken.value = sessionStorage.getItem('cs.operatorToken') || '';
   state.chatThreadId = ensureChatThreadId();
   if (e.toolDelegate) e.toolDelegate.checked = localStorage.getItem('cs.chat.toolDelegate.v1') === '1';
+  if (e.conversationSyncMode) e.conversationSyncMode.value = localStorage.getItem('cs.turnsync.mode.v1') || 'ask';
+  if (e.conversationSyncPayload) e.conversationSyncPayload.value = localStorage.getItem('cs.turnsync.payload.v1') || 'full_turns';
 
   const priorChain = localStorage.getItem('cs.chain') || DEFAULT_CHAIN;
   try {
@@ -407,6 +424,8 @@ function saveSettings() {
   localStorage.setItem('cs.scope.v1', JSON.stringify(normalizeScope(state.scope)));
   if (state.scope.mode === 'single_chain' && state.scope.chains?.[0]) localStorage.setItem('cs.chain', state.scope.chains[0]);
   if (e.toolDelegate) localStorage.setItem('cs.chat.toolDelegate.v1', e.toolDelegate.checked ? '1' : '0');
+  if (e.conversationSyncMode) localStorage.setItem('cs.turnsync.mode.v1', e.conversationSyncMode.value);
+  if (e.conversationSyncPayload) localStorage.setItem('cs.turnsync.payload.v1', e.conversationSyncPayload.value);
   saveActorNavSettings();
 }
 
@@ -1845,6 +1864,134 @@ async function handoff() {
   }
 }
 
+function syncConversationPolicyUi() {
+  if (!e.conversationSyncMode || !e.conversationSyncPayload || !e.conversationSyncNote) return;
+  const policy = normalizeTurnSyncPolicy({ mode: e.conversationSyncMode.value, payload: e.conversationSyncPayload.value });
+  const modeCopy = policy.mode === 'on'
+    ? 'Standing project preference is ON.'
+    : policy.mode === 'off'
+      ? 'TurnSync preference is OFF.'
+      : 'TurnSync will require an explicit provider-side prompt/approval until standing authorization is enabled.';
+  e.conversationSyncNote.textContent = `${modeCopy} Payload: ${policy.payload}. First slice stores this preference locally; it does not create a hidden upload hook or accepted project state.`;
+  saveSettings();
+}
+
+async function refreshConversations() {
+  const actor = (e.actorId?.value || '').trim();
+  if (!actor) return toast('Actor ID required for Conversation Session discovery');
+  busy(e.conversationsRefresh, true, 'Loading…');
+  if (e.conversationsList) e.conversationsList.innerHTML = '<p class="muted">Loading Conversation Sessions…</p>';
+  try {
+    const r = await mcpCall('cairnstone_conversation_session_list', { actor_id: actor, limit: 50 });
+    state.conversations = (r.conversations || []).map(normalizeConversationSession);
+    renderConversations();
+    toast(`${state.conversations.length} conversation${state.conversations.length === 1 ? '' : 's'} visible to ${actor}`);
+  } catch (err) {
+    state.conversations = [];
+    if (e.conversationsList) e.conversationsList.innerHTML = `<p class="muted">${esc(err.message)}</p>`;
+    toast(err.message);
+  } finally {
+    busy(e.conversationsRefresh, false, 'Refresh');
+  }
+}
+
+function renderConversations() {
+  if (!e.conversationsList) return;
+  const q = e.conversationsSearch?.value || '';
+  const rows = (state.conversations || []).filter(x => conversationSearchMatches(x, q));
+  if (!rows.length) {
+    e.conversationsList.innerHTML = `<p class="muted">${q ? 'No matching Conversation Sessions.' : 'No Conversation Sessions visible to the current actor.'}</p>`;
+    return;
+  }
+  e.conversationsList.innerHTML = '';
+  for (const session of rows) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'message-item';
+    const actors = session.participants.length ? session.participants.join(', ') : 'no participant metadata';
+    b.innerHTML = `<strong>${esc(session.conversation_id || '(missing conversation_id)')}</strong><div class="meta">${esc(session.status)} · ${session.turn_count} stored turn${session.turn_count === 1 ? '' : 's'} · rev ${esc(session.session_revision ?? '—')}</div><div class="meta">${esc(actors)}</div>`;
+    b.addEventListener('click', () => selectConversation(session));
+    e.conversationsList.append(b);
+  }
+}
+
+async function selectConversation(summary) {
+  const actor = (e.actorId?.value || '').trim();
+  const conversationId = summary?.conversation_id;
+  if (!actor || !conversationId) return toast('Actor and conversation ID are required');
+  if (e.conversationDetailTitle) e.conversationDetailTitle.textContent = 'Loading conversation…';
+  try {
+    const r = await mcpCall('cairnstone_conversation_session_get', {
+      conversation_id: conversationId,
+      actor_id: actor,
+      include_turns: true
+    });
+    state.selectedConversation = normalizeConversationSession(r);
+    renderConversationDetail();
+  } catch (err) {
+    state.selectedConversation = null;
+    if (e.conversationDetailTitle) e.conversationDetailTitle.textContent = 'Conversation unavailable';
+    if (e.conversationDigest) e.conversationDigest.textContent = err.message;
+    if (e.conversationJevNext) e.conversationJevNext.disabled = true;
+    toast(err.message);
+  }
+}
+
+function renderConversationDetail() {
+  const s = state.selectedConversation;
+  if (!s) return;
+  if (e.conversationDetailTitle) e.conversationDetailTitle.textContent = s.conversation_id || 'Conversation';
+  if (e.conversationDetailMeta) {
+    e.conversationDetailMeta.innerHTML = [
+      ['status', s.status],
+      ['revision', s.session_revision ?? '—'],
+      ['turns', s.turn_count],
+      ['actors', s.participants.length],
+      ['chain', s.selected_chain || '—'],
+      ['project_memory', 'false']
+    ].map(([k, v]) => chip(`${k}: ${v}`)).join('');
+  }
+  const digest = conversationDigest(s);
+  if (e.conversationDigest) e.conversationDigest.textContent = JSON.stringify(digest, null, 2);
+  if (e.conversationTurns) {
+    e.conversationTurns.innerHTML = s.turns.length ? '' : '<p class="muted">No durable turns stored in this session.</p>';
+    for (const turn of s.turns) {
+      const row = document.createElement('div');
+      row.className = 'message-item';
+      const preview = turn.content_preview || (turn.content_ref ? `Content ref: ${turn.content_ref}` : 'No content preview stored');
+      row.innerHTML = `<strong>${esc(turn.actor_id || 'unattributed')} · ${esc(turn.role)} · ${esc(turn.turn_type)}</strong><div class="meta">${esc(turn.turn_id || '—')} · ${esc(turn.message_id || '—')}${turn.created_at ? ` · ${esc(new Date(turn.created_at).toLocaleString())}` : ''}</div><div class="meta">${esc(preview)}</div>`;
+      e.conversationTurns.append(row);
+    }
+  }
+  if (e.conversationJevNext) e.conversationJevNext.disabled = false;
+  if (e.conversationJevResult) e.conversationJevResult.textContent = 'JEV is used here for bounded next-action ranking, not free-form summarization.';
+}
+
+async function scoreConversationNextAction() {
+  const s = state.selectedConversation;
+  if (!s) return toast('Select a Conversation Session first');
+  const prepared = buildJevNextActionArgs({
+    task: `Rank the safest, most useful next action for Conversation Session ${s.conversation_id}. Preserve actor identities and do not grant execution authority.`,
+    candidates: buildNextActionCandidates(s)
+  });
+  if (!prepared.ok) return toast(prepared.errors?.[0] || 'No next-action candidates');
+  if (workerHasTool('ask_jev') === false) {
+    if (e.conversationJevResult) e.conversationJevResult.textContent = 'ask_jev is not exposed by the current runtime.';
+    return toast('ask_jev is not available');
+  }
+  busy(e.conversationJevNext, true, 'Scoring…');
+  try {
+    const r = await mcpCall(prepared.tool, prepared.args);
+    if (e.conversationJevResult) e.conversationJevResult.textContent = JSON.stringify(r, null, 2);
+    toast('JEV next-action score ready');
+  } catch (err) {
+    if (e.conversationJevResult) e.conversationJevResult.textContent = JSON.stringify(err.payload || { error: err.message }, null, 2);
+    toast(err.message);
+  } finally {
+    busy(e.conversationJevNext, false, 'JEV next action');
+  }
+}
+
 async function refreshActivity({ quiet = false } = {}) {
   const actors = activityQueryRecipients();
   if (!actors.length) {
@@ -3255,7 +3402,8 @@ function syncCommsHub(panelName) {
   const map = {
     inbox: { eyebrow: 'inboxHubEyebrow', blurb: 'inboxHubBlurb', scope: 'inboxHubScopeNote' },
     handoff: { eyebrow: 'handoffHubEyebrow', blurb: 'handoffHubBlurb', scope: 'handoffHubScopeNote' },
-    activity: { eyebrow: 'activityHubEyebrow', blurb: 'activityHubBlurb', scope: 'activityHubScopeNote' }
+    activity: { eyebrow: 'activityHubEyebrow', blurb: 'activityHubBlurb', scope: 'activityHubScopeNote' },
+    conversations: { eyebrow: 'conversationsHubEyebrow', blurb: 'conversationsHubBlurb', scope: 'conversationsHubScopeNote' }
   };
   const ids = map[panelName];
   if (!ids) return;
@@ -3527,6 +3675,11 @@ if (e.toolDelegate) e.toolDelegate.addEventListener('change', () => { saveSettin
 e.activityRefresh.addEventListener('click', refreshActivity);
 e.activityFilter.addEventListener('change', renderActivity);
 e.activityGroupThreads.addEventListener('change', renderActivity);
+if (e.conversationsRefresh) e.conversationsRefresh.addEventListener('click', refreshConversations);
+if (e.conversationsSearch) e.conversationsSearch.addEventListener('input', renderConversations);
+if (e.conversationSyncMode) e.conversationSyncMode.addEventListener('change', syncConversationPolicyUi);
+if (e.conversationSyncPayload) e.conversationSyncPayload.addEventListener('change', syncConversationPolicyUi);
+if (e.conversationJevNext) e.conversationJevNext.addEventListener('click', scoreConversationNextAction);
 if (e.inboxActor) {
   e.inboxActor.addEventListener('change', () => {
     ingestCustomActorField(e.inboxActor.value, { into: 'inbox' });
@@ -3654,6 +3807,7 @@ if (codeSessionInput) {
 }
 
 loadSettings();
+syncConversationPolicyUi();
 renderChatMode();
 syncContextBar();
 syncSavedViewsContextLabel();
