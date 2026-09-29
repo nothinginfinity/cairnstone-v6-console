@@ -10,6 +10,12 @@ export const TURN_ROLES = Object.freeze(['user', 'assistant', 'system', 'tool', 
 const uniq = values => [...new Set((values || []).filter(Boolean).map(String))];
 const text = value => String(value ?? '').trim();
 const list = value => Array.isArray(value) ? value.filter(Boolean) : [];
+const normalizeVisibility = value => list(value).map(item => ({
+  actor_id: text(item?.actor_id) || null,
+  client_families: uniq(item?.client_families),
+  connection_ids: uniq(item?.connection_ids),
+  identity_kinds: uniq(item?.identity_kinds)
+})).filter(item => item.actor_id);
 const numberOrNull = value => (value === null || value === undefined || value === '')
   ? null
   : (Number.isFinite(Number(value)) ? Number(value) : null);
@@ -73,6 +79,7 @@ export function normalizeConversationSession(session = {}) {
   const selectedActors = uniq(session.selected_actors);
   const turnActors = uniq(turns.map(t => t.actor_id));
   const participants = uniq([session.created_by, ...selectedActors, ...turnActors]);
+  const visibleVia = normalizeVisibility(session.visible_via);
   return {
     schema: session.schema || 'cairnstone-conversation-session-v1',
     conversation_id: text(session.conversation_id) || null,
@@ -83,6 +90,7 @@ export function normalizeConversationSession(session = {}) {
     updated_at: text(session.updated_at) || null,
     selected_actors: selectedActors,
     participants,
+    visible_via: visibleVia,
     selected_repo: text(session.selected_repo) || null,
     selected_chain: text(session.selected_chain) || null,
     code_session_id: text(session.code_session_id) || null,
@@ -128,6 +136,7 @@ export function conversationSearchMatches(session, query) {
     s.selected_chain,
     s.code_session_id,
     ...s.participants,
+    ...s.visible_via.flatMap(v => [v.actor_id, ...v.client_families, ...v.connection_ids]),
     ...s.last_response_ids,
     ...s.turns.flatMap(t => [t.turn_id, t.message_id, t.actor_id, t.turn_type, t.content_preview, t.content_ref])
   ].filter(Boolean).join('\n').toLowerCase();
@@ -150,6 +159,7 @@ export function conversationDigest(session) {
     turn_count: s.turn_count,
     participant_count: s.participants.length,
     participants: s.participants,
+    visible_via: s.visible_via,
     latest_by_actor: actorLines,
     unresolved_actor_ids: s.selected_actors.filter(actor => !latest.some(x => x.actor_id === actor)),
     accepted_state_authority: false,
