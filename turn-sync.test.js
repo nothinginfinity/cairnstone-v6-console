@@ -80,6 +80,15 @@ describe('Append + JEV boundaries', () => {
     assert.equal(built.accepted_state_authority, false);
   });
 
+  it('fails closed on an unsupported role instead of coercing it for append', () => {
+    const built = buildAppendTurnArgs({
+      conversationId: 'cvs:test', actorId: 'chatgpt:cairnstone-v6', baseRevision: 3,
+      turn: { turn_id: 'turn:bad', message_id: 'cmsg:bad', role: 'invented-role', content_preview: 'Nope' }
+    });
+    assert.equal(built.ok, false);
+    assert.ok(built.errors.includes('unsupported role'));
+  });
+
   it('uses JEV for next-action scoring rather than free-form summarization', () => {
     const candidates = buildNextActionCandidates(sample);
     assert.ok(candidates.some(x => x.id === 'request:claude:cairnstone-v6'));
