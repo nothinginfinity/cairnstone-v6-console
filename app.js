@@ -41,6 +41,22 @@ import {
   normalizeTurnSyncPolicy
 } from './turn-sync.js';
 import {
+  CORE_AUTH_CLIENT_ID,
+  CORE_AUTH_FLOW_KEY,
+  CORE_AUTH_SESSION_KEY,
+  authorizationCodeTokenBody,
+  buildAuthorizeUrl,
+  coreAuthMcpUrl,
+  isCoreAuthMcpUrl,
+  oauthEndpoints,
+  parseOAuthCallback,
+  randomPkceVerifier,
+  refreshTokenBody,
+  sessionUsable,
+  stripOAuthCallbackFromUrl,
+  tokenSessionFromResponse
+} from './core-auth-client.js';
+import {
   ACTIVITY_NAV_STORE_KEY,
   HANDOFF_NAV_STORE_KEY,
   INBOX_NAV_STORE_KEY,
@@ -178,6 +194,7 @@ const state = {
   activity: [],
   conversations: [],
   conversationAggregate: null,
+  coreAuth: null,
   selectedConversation: null,
   stones: [],
   selectedStone: null,
@@ -287,7 +304,7 @@ const e = {
   savedViewName: $('savedViewName'), savedViewSave: $('savedViewSave'), savedViewsList: $('savedViewsList'),
   savedViewFreshness: $('savedViewFreshness'), scopeAdvanced: $('scopeAdvanced'),
   settingsOpenSheet: $('settingsOpenSheet'), settingsActorPreview: $('settingsActorPreview'), settingsRuntimePreview: $('settingsRuntimePreview'),
-  runtimeSheetRecheck: $('runtimeSheetRecheck'),
+  runtimeSheetRecheck: $('runtimeSheetRecheck'), coreAuthConnect: $('coreAuthConnect'), coreAuthSignOut: $('coreAuthSignOut'), coreAuthStatus: $('coreAuthStatus'),
   codeSessionId: $('codeSessionId'),
   openChatConfig: $('openChatConfig'), openEvidenceDrawer: $('openEvidenceDrawer'),
   chatConfigHonesty: $('chatConfigHonesty'), chatConfigRouteNote: $('chatConfigRouteNote'),
