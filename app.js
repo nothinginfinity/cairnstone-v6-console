@@ -413,6 +413,12 @@ function loadSettings() {
   e.inboxActor.value = localStorage.getItem('cs.inboxActor') || e.actorId.value;
   e.activityActors.value = localStorage.getItem('cs.activityActors') || e.actorId.value;
   e.operatorToken.value = sessionStorage.getItem('cs.operatorToken') || '';
+  state.coreAuth = readCoreAuthSession();
+  if (state.coreAuth) {
+    try {
+      if (new URL(e.runtimeUrl.value).origin === state.coreAuth.runtime_origin) e.runtimeUrl.value = state.coreAuth.mcp_url;
+    } catch { /* keep configured runtime */ }
+  }
   state.chatThreadId = ensureChatThreadId();
   if (e.toolDelegate) e.toolDelegate.checked = localStorage.getItem('cs.chat.toolDelegate.v1') === '1';
   if (e.conversationSyncMode) e.conversationSyncMode.value = localStorage.getItem('cs.turnsync.mode.v1') || 'ask';
@@ -447,16 +453,145 @@ function saveSettings() {
   saveActorNavSettings();
 }
 
-async function mcpCall(name, args = {}) {
+function readCoreAuthSession() {
+  try {
+    const parsed = JSON.parse(sessionStorage.getItem(CORE_AUTH_SESSION_KEY) || 'null');
+    return parsed && parsed.access_token && parsed.refresh_token ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCoreAuthSession(session) {
+  state.coreAuth = session || null;
+  if (session) sessionStorage.setItem(CORE_AUTH_SESSION_KEY, JSON.stringify(session));
+  else sessionStorage.removeItem(CORE_AUTH_SESSION_KEY);
+  renderCoreAuthStatus();
+}
+
+function renderCoreAuthStatus() {
+  if (!e.coreAuthStatus) return;
+  const session = state.coreAuth;
+  const connected = Boolean(session?.access_token && session?.refresh_token);
+  if (e.coreAuthConnect) e.coreAuthConnect.disabled = connected;
+  if (e.coreAuthSignOut) e.coreAuthSignOut.disabled = !connected;
+  if (!connected) {
+    e.coreAuthStatus.textContent = 'Core account not connected. Legacy MCP remains available.';
+    return;
+  }
+  const identity = session.connection_id || session.principal_id || 'authenticated connection';
+  e.coreAuthStatus.textContent = `Core account connected · ${identity} · tokens stay in this browser tab/session only.`;
+}
+
+async function oauthPost(url, params) {
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
+    body: params.toString()
+  });
+  let out;
+  try { out = await response.json(); } catch { throw new Error(`OAuth HTTP ${response.status}`); }
+  if (!response.ok || out?.ok === false || out?.error) {
+    const err = new Error(out?.error_description || out?.detail || out?.error || `OAuth HTTP ${response.status}`);
+    err.payload = out;
+    throw err;
+  }
+  return out;
+}
+
+async function refreshCoreAuthSession() {
+  const prior = state.coreAuth || readCoreAuthSession();
+  if (!prior?.refresh_token || !prior?.runtime_origin) throw new Error('Core sign-in required');
+  try {
+    const endpoints = oauthEndpoints(prior.runtime_origin);
+    const out = await oauthPost(endpoints.token, refreshTokenBody({ refreshToken: prior.refresh_token, runtimeUrl: prior.runtime_origin }));
+    const next = tokenSessionFromResponse(out, { runtimeUrl: prior.runtime_origin, prior });
+    writeCoreAuthSession(next);
+    return next;
+  } catch (err) {
+    writeCoreAuthSession(null);
+    throw err;
+  }
+}
+
+async function startCoreAuth() {
+  const runtimeUrl = e.runtimeUrl.value.trim() || DEFAULT_RUNTIME;
+  const verifier = randomPkceVerifier();
+  const oauthState = crypto.randomUUID();
+  sessionStorage.setItem(CORE_AUTH_FLOW_KEY, JSON.stringify({ verifier, state: oauthState, runtime_url: runtimeUrl, created_at_ms: Date.now() }));
+  const authorizeUrl = await buildAuthorizeUrl({ runtimeUrl, verifier, state: oauthState });
+  window.location.assign(authorizeUrl);
+}
+
+async function handleCoreAuthCallback() {
+  const callback = parseOAuthCallback(window.location);
+  if (!callback) return false;
+  let flow;
+  try { flow = JSON.parse(sessionStorage.getItem(CORE_AUTH_FLOW_KEY) || 'null'); } catch { flow = null; }
+  const cleanup = () => {
+    sessionStorage.removeItem(CORE_AUTH_FLOW_KEY);
+    history.replaceState({}, '', stripOAuthCallbackFromUrl(window.location));
+  };
+  if (callback.error) {
+    cleanup();
+    throw new Error(callback.error_description || callback.error);
+  }
+  if (!flow?.verifier || !flow?.runtime_url || !flow?.state || callback.state !== flow.state) {
+    cleanup();
+    throw new Error('OAuth callback state mismatch or expired Console flow');
+  }
+  const endpoints = oauthEndpoints(flow.runtime_url);
+  const out = await oauthPost(endpoints.token, authorizationCodeTokenBody({
+    code: callback.code,
+    verifier: flow.verifier,
+    runtimeUrl: flow.runtime_url
+  }));
+  const session = tokenSessionFromResponse(out, { runtimeUrl: flow.runtime_url });
+  cleanup();
+  writeCoreAuthSession(session);
+  e.runtimeUrl.value = session.mcp_url;
+  saveSettings();
+  syncContextBar();
+  return true;
+}
+
+async function signOutCoreAuth() {
+  const session = state.coreAuth || readCoreAuthSession();
+  if (session?.refresh_token && session?.runtime_origin) {
+    try {
+      const endpoints = oauthEndpoints(session.runtime_origin);
+      const params = new URLSearchParams();
+      params.set('token', session.refresh_token);
+      params.set('client_id', CORE_AUTH_CLIENT_ID);
+      await oauthPost(endpoints.revoke, params);
+    } catch { /* local sign-out still clears browser bearer state */ }
+  }
+  const legacyOrigin = session?.runtime_origin || new URL(e.runtimeUrl.value.trim() || DEFAULT_RUNTIME).origin;
+  writeCoreAuthSession(null);
+  e.runtimeUrl.value = `${legacyOrigin}/mcp`;
+  saveSettings();
+  syncContextBar();
+  await health().catch(() => {});
+}
+
+async function mcpCall(name, args = {}, { authRetry = true } = {}) {
   saveSettings();
   const MCP_CALL_TIMEOUT_MS = 10000; // 8–12s band — fail closed, never hang Work resolve
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), MCP_CALL_TIMEOUT_MS);
   let r;
+  const runtimeUrl = e.runtimeUrl.value.trim();
+  const headers = { 'Content-Type': 'application/json', 'Accept': 'application/json' };
+  if (isCoreAuthMcpUrl(runtimeUrl)) {
+    let session = state.coreAuth || readCoreAuthSession();
+    if (!session) throw new Error('Core sign-in required for /mcp/core-auth');
+    if (!sessionUsable(session, runtimeUrl)) session = await refreshCoreAuthSession();
+    headers.Authorization = `Bearer ${session.access_token}`;
+  }
   try {
-    r = await fetch(e.runtimeUrl.value.trim(), {
+    r = await fetch(runtimeUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      headers,
       body: JSON.stringify({ jsonrpc: '2.0', id: crypto.randomUUID(), method: 'tools/call', params: { name, arguments: args } }),
       signal: controller.signal
     });
@@ -472,6 +607,10 @@ async function mcpCall(name, args = {}) {
     throw err;
   } finally {
     clearTimeout(timeoutId);
+  }
+  if (r.status === 401 && isCoreAuthMcpUrl(runtimeUrl) && authRetry) {
+    await refreshCoreAuthSession();
+    return mcpCall(name, args, { authRetry: false });
   }
   if (!r.ok) throw new Error(`MCP HTTP ${r.status}`);
   const rpc = await r.json();
