@@ -195,6 +195,7 @@ const state = {
   conversations: [],
   conversationAggregate: null,
   coreAuth: null,
+  turnSyncPolicy: null,
   selectedConversation: null,
   stones: [],
   selectedStone: null,
@@ -339,7 +340,7 @@ const e = {
   activityRefresh: $('activityRefresh'), activityActors: $('activityActors'), activityFilter: $('activityFilter'), activityGroupThreads: $('activityGroupThreads'), activityList: $('activityList'),
   activityActorPicker: $('activityActorPicker'), activityActorMeta: $('activityActorMeta'), activityActorNavLabel: $('activityActorNavLabel'),
   conversationsRefresh: $('conversationsRefresh'), conversationsSearch: $('conversationsSearch'), conversationsList: $('conversationsList'), conversationAggregateNote: $('conversationAggregateNote'),
-  conversationSyncMode: $('conversationSyncMode'), conversationSyncPayload: $('conversationSyncPayload'), conversationSyncNote: $('conversationSyncNote'),
+  conversationSyncMode: $('conversationSyncMode'), conversationSyncPayload: $('conversationSyncPayload'), conversationSyncSave: $('conversationSyncSave'), conversationSyncNote: $('conversationSyncNote'),
   conversationDetailTitle: $('conversationDetailTitle'), conversationDetailMeta: $('conversationDetailMeta'), conversationDigest: $('conversationDigest'), conversationTurns: $('conversationTurns'),
   conversationJevNext: $('conversationJevNext'), conversationJevResult: $('conversationJevResult'),
   stonesRefresh: $('stonesRefresh'), stonesQuery: $('stonesQuery'), stonesHead: $('stonesHead'), stonesList: $('stonesList'), stoneDetailTitle: $('stoneDetailTitle'), stoneDetailMeta: $('stoneDetailMeta'),
@@ -568,6 +569,7 @@ async function signOutCoreAuth() {
   }
   const legacyOrigin = session?.runtime_origin || new URL(e.runtimeUrl.value.trim() || DEFAULT_RUNTIME).origin;
   writeCoreAuthSession(null);
+  state.turnSyncPolicy = null;
   e.runtimeUrl.value = `${legacyOrigin}/mcp`;
   saveSettings();
   syncContextBar();
@@ -2021,16 +2023,98 @@ async function handoff() {
   }
 }
 
-function syncConversationPolicyUi() {
+function turnSyncCoreConnected() {
+  return Boolean(state.coreAuth?.access_token && isCoreAuthMcpUrl(e.runtimeUrl?.value?.trim() || ''));
+}
+
+function turnSyncDraftPolicy() {
+  return normalizeTurnSyncPolicy({
+    mode: e.conversationSyncMode?.value || 'ask',
+    payload: e.conversationSyncPayload?.value || 'full_turns'
+  });
+}
+
+function syncConversationPolicyUi({ persistDraft = true } = {}) {
   if (!e.conversationSyncMode || !e.conversationSyncPayload || !e.conversationSyncNote) return;
-  const policy = normalizeTurnSyncPolicy({ mode: e.conversationSyncMode.value, payload: e.conversationSyncPayload.value });
-  const modeCopy = policy.mode === 'on'
-    ? 'Standing project preference is ON.'
-    : policy.mode === 'off'
-      ? 'TurnSync preference is OFF.'
-      : 'TurnSync will require an explicit provider-side prompt/approval until standing authorization is enabled.';
-  e.conversationSyncNote.textContent = `${modeCopy} Payload: ${policy.payload}. First slice stores this preference locally; it does not create a hidden upload hook or accepted project state.`;
-  saveSettings();
+  if (persistDraft) saveSettings();
+  const draft = turnSyncDraftPolicy();
+  const connected = turnSyncCoreConnected();
+  if (e.conversationSyncSave) e.conversationSyncSave.disabled = !connected;
+
+  if (!connected) {
+    e.conversationSyncNote.textContent = `Browser draft: ${draft.mode.toUpperCase()} · ${draft.payload}. Connect Core account to read/save the authenticated account default. This draft is not standing authorization and never creates accepted project state.`;
+    return;
+  }
+
+  const effective = state.turnSyncPolicy?.effective || null;
+  if (!effective) {
+    e.conversationSyncNote.textContent = `Core account connected. Draft: ${draft.mode.toUpperCase()} · ${draft.payload}. Load/refresh the saved account default before relying on it; no hidden upload occurs from changing these selects.`;
+    return;
+  }
+
+  const same = effective.mode === draft.mode && effective.payload_mode === draft.payload;
+  const source = state.turnSyncPolicy?.defaulted ? 'safe default' : 'saved account default';
+  const rev = Number(effective.revision || 0);
+  const selective = draft.payload !== 'full_turns'
+    ? ' Selective payload mode is stored as policy but automatic append fails closed until the trusted transformer exists.'
+    : '';
+  e.conversationSyncNote.textContent = same
+    ? `${source}: ${draft.mode.toUpperCase()} · ${draft.payload}${rev ? ` · rev ${rev}` : ''}. Workspace/chain policies may override this account default for a bound Conversation Session. accepted_state_authority=false.${selective}`
+    : `Unsaved browser draft: ${draft.mode.toUpperCase()} · ${draft.payload}. Current ${source}: ${String(effective.mode || 'ask').toUpperCase()} · ${effective.payload_mode || 'full_turns'}${rev ? ` · rev ${rev}` : ''}. Use Save account policy to commit this operational setting.${selective}`;
+}
+
+async function loadTurnSyncPolicy({ quiet = false } = {}) {
+  if (!turnSyncCoreConnected()) {
+    state.turnSyncPolicy = null;
+    syncConversationPolicyUi({ persistDraft: false });
+    return null;
+  }
+  try {
+    const result = await mcpCall('cairnstone_turnsync_policy_get', {});
+    state.turnSyncPolicy = result;
+    const effective = result?.effective;
+    if (effective?.mode) e.conversationSyncMode.value = effective.mode;
+    if (effective?.payload_mode) e.conversationSyncPayload.value = effective.payload_mode;
+    saveSettings();
+    syncConversationPolicyUi({ persistDraft: false });
+    return result;
+  } catch (err) {
+    state.turnSyncPolicy = null;
+    syncConversationPolicyUi({ persistDraft: false });
+    if (!quiet) toast(err.message || 'TurnSync policy could not be loaded');
+    throw err;
+  }
+}
+
+async function saveTurnSyncPolicy() {
+  if (!turnSyncCoreConnected()) return toast('Connect Core account before saving TurnSync policy');
+  const draft = turnSyncDraftPolicy();
+  const effective = state.turnSyncPolicy?.effective || null;
+  const args = {
+    scope_kind: 'account',
+    mode: draft.mode,
+    payload_mode: draft.payload,
+    human_commit: true
+  };
+  if (effective?.scope_kind === 'account' && Number(effective.revision || 0) > 0) {
+    args.base_revision = Number(effective.revision);
+  }
+  busy(e.conversationSyncSave, true, 'Saving…');
+  try {
+    await mcpCall('cairnstone_turnsync_policy_set', args);
+    await loadTurnSyncPolicy({ quiet: true });
+    toast('TurnSync account policy saved');
+  } catch (err) {
+    if (err.payload?.error === 'turnsync_policy_conflict' || err.payload?.error === 'turnsync_policy_revision_required') {
+      await loadTurnSyncPolicy({ quiet: true }).catch(() => {});
+      toast('TurnSync policy changed elsewhere; reloaded current revision');
+    } else {
+      toast(err.message || 'TurnSync policy save failed');
+    }
+  } finally {
+    busy(e.conversationSyncSave, false, 'Save account policy');
+    syncConversationPolicyUi({ persistDraft: false });
+  }
 }
 
 function renderConversationAggregateNote() {
@@ -2053,6 +2137,7 @@ function renderConversationAggregateNote() {
 async function refreshConversations() {
   const actor = (e.actorId?.value || '').trim();
   busy(e.conversationsRefresh, true, 'Loading…');
+  await loadTurnSyncPolicy({ quiet: true }).catch(() => {});
   if (e.conversationsList) e.conversationsList.innerHTML = '<p class="muted">Loading Conversation Sessions…</p>';
   try {
     try {
@@ -3874,6 +3959,7 @@ if (e.conversationsRefresh) e.conversationsRefresh.addEventListener('click', ref
 if (e.conversationsSearch) e.conversationsSearch.addEventListener('input', renderConversations);
 if (e.conversationSyncMode) e.conversationSyncMode.addEventListener('change', syncConversationPolicyUi);
 if (e.conversationSyncPayload) e.conversationSyncPayload.addEventListener('change', syncConversationPolicyUi);
+if (e.conversationSyncSave) e.conversationSyncSave.addEventListener('click', () => saveTurnSyncPolicy());
 if (e.conversationJevNext) e.conversationJevNext.addEventListener('click', scoreConversationNextAction);
 if (e.inboxActor) {
   e.inboxActor.addEventListener('change', () => {
@@ -4009,7 +4095,8 @@ try {
   renderCoreAuthStatus();
   toast(err.message || 'Core OAuth callback failed');
 }
-syncConversationPolicyUi();
+syncConversationPolicyUi({ persistDraft: false });
+await loadTurnSyncPolicy({ quiet: true }).catch(() => {});
 renderChatMode();
 syncContextBar();
 syncSavedViewsContextLabel();
