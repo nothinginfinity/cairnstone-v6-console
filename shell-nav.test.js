@@ -114,8 +114,8 @@ test('Work first paint is task-oriented with progressive disclosure', () => {
   assert.match(codeSession, /workFirstPaintModel|work-surface/);
 });
 
-test('Communications hub keeps Inbox · Handoff · Activity with shared list patterns', () => {
-  assert.match(html, /aria-label="Communications: Inbox, Handoff, Activity"/);
+test('Communications hub keeps Inbox · Handoff · Activity · Conversations with shared list patterns', () => {
+  assert.match(html, /aria-label="Communications: Inbox, Handoff, Activity, Conversations"/);
   assert.match(html, /comms-hub-card/);
   assert.match(html, /id="inboxGroupThreads"/);
   assert.match(html, /id="inboxHubBlurb"/);
