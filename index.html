@@ -244,7 +244,7 @@
           <p id="conversationAggregateNote" class="muted small">Runtime will prefer the authenticated account aggregate when available; legacy runtimes fall back to one actor-scoped Conversation Session list.</p>
           <label><span>Search conversations</span><input id="conversationsSearch" placeholder="conversation ID, actor, turn preview…" autocomplete="off" spellcheck="false"></label>
           <div class="form-grid two">
-            <label><span>TurnSync policy <small>(local preference for provider bridge)</small></span>
+            <label><span>TurnSync account default <small>(Core-auth operational policy)</small></span>
               <select id="conversationSyncMode">
                 <option value="ask">Ask</option>
                 <option value="on">On</option>
@@ -259,7 +259,10 @@
               </select>
             </label>
           </div>
-          <p id="conversationSyncNote" class="muted small">First slice: preference is stored locally. Provider end-of-turn append hooks are the next integration boundary; no hidden upload occurs from this control alone.</p>
+          <div class="invite-actions">
+            <button id="conversationSyncSave" class="primary compact-button" type="button">Save account policy</button>
+          </div>
+          <p id="conversationSyncNote" class="muted small">Connect Core account to load or save the authenticated account default. Local values are only a browser draft until an explicit save succeeds.</p>
           <div id="conversationsList" class="message-list" aria-live="polite"><p class="muted">Refresh to load Conversation Sessions visible to the current actor.</p></div>
         </div>
         <div class="card">
