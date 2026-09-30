@@ -33,7 +33,7 @@ describe('comms hub intents', () => {
       assert.equal(b.grantsExecutionAuthority, false);
       assert.equal(b.acceptedStateAuthority, false);
       assert.match(b.identityNote, /stone_hash|message_id/);
-      assert.match(b.scopeNote, /Scope/i);
+      assert.match(b.scopeNote, /Scope|authority boundaries/i);
     }
   });
 });
