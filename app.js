@@ -33,6 +33,30 @@ import {
   sortMessagesNewestFirst
 } from './comms-hub.js';
 import {
+  buildJevNextActionArgs,
+  buildNextActionCandidates,
+  conversationDigest,
+  conversationSearchMatches,
+  normalizeConversationSession,
+  normalizeTurnSyncPolicy
+} from './turn-sync.js';
+import {
+  CORE_AUTH_CLIENT_ID,
+  CORE_AUTH_FLOW_KEY,
+  CORE_AUTH_SESSION_KEY,
+  authorizationCodeTokenBody,
+  buildAuthorizeUrl,
+  coreAuthMcpUrl,
+  isCoreAuthMcpUrl,
+  oauthEndpoints,
+  parseOAuthCallback,
+  randomPkceVerifier,
+  refreshTokenBody,
+  sessionUsable,
+  stripOAuthCallbackFromUrl,
+  tokenSessionFromResponse
+} from './core-auth-client.js';
+import {
   ACTIVITY_NAV_STORE_KEY,
   HANDOFF_NAV_STORE_KEY,
   INBOX_NAV_STORE_KEY,
@@ -168,6 +192,11 @@ const state = {
   chatThreadId: null,
   inbox: [],
   activity: [],
+  conversations: [],
+  conversationAggregate: null,
+  coreAuth: null,
+  turnSyncPolicy: null,
+  selectedConversation: null,
   stones: [],
   selectedStone: null,
   authorizations: [],
@@ -231,6 +260,7 @@ const PRIMARY_BY_PANEL = {
   inbox: 'inbox',
   handoff: 'inbox',
   activity: 'inbox',
+  conversations: 'inbox',
   stones: 'more',
   evidence: 'more',
   access: 'more',
@@ -275,7 +305,7 @@ const e = {
   savedViewName: $('savedViewName'), savedViewSave: $('savedViewSave'), savedViewsList: $('savedViewsList'),
   savedViewFreshness: $('savedViewFreshness'), scopeAdvanced: $('scopeAdvanced'),
   settingsOpenSheet: $('settingsOpenSheet'), settingsActorPreview: $('settingsActorPreview'), settingsRuntimePreview: $('settingsRuntimePreview'),
-  runtimeSheetRecheck: $('runtimeSheetRecheck'),
+  runtimeSheetRecheck: $('runtimeSheetRecheck'), coreAuthConnect: $('coreAuthConnect'), coreAuthSignOut: $('coreAuthSignOut'), coreAuthStatus: $('coreAuthStatus'),
   codeSessionId: $('codeSessionId'),
   openChatConfig: $('openChatConfig'), openEvidenceDrawer: $('openEvidenceDrawer'),
   chatConfigHonesty: $('chatConfigHonesty'), chatConfigRouteNote: $('chatConfigRouteNote'),
@@ -309,6 +339,10 @@ const e = {
   mirrorOwner: $('mirrorOwner'), mirrorRepo: $('mirrorRepo'), mirrorBranch: $('mirrorBranch'), mirrorPrefix: $('mirrorPrefix'), handoffButton: $('handoffButton'), handoffResult: $('handoffResult'),
   activityRefresh: $('activityRefresh'), activityActors: $('activityActors'), activityFilter: $('activityFilter'), activityGroupThreads: $('activityGroupThreads'), activityList: $('activityList'),
   activityActorPicker: $('activityActorPicker'), activityActorMeta: $('activityActorMeta'), activityActorNavLabel: $('activityActorNavLabel'),
+  conversationsRefresh: $('conversationsRefresh'), conversationsSearch: $('conversationsSearch'), conversationsList: $('conversationsList'), conversationAggregateNote: $('conversationAggregateNote'),
+  conversationSyncMode: $('conversationSyncMode'), conversationSyncPayload: $('conversationSyncPayload'), conversationSyncSave: $('conversationSyncSave'), conversationSyncNote: $('conversationSyncNote'),
+  conversationDetailTitle: $('conversationDetailTitle'), conversationDetailMeta: $('conversationDetailMeta'), conversationDigest: $('conversationDigest'), conversationTurns: $('conversationTurns'),
+  conversationJevNext: $('conversationJevNext'), conversationJevResult: $('conversationJevResult'),
   stonesRefresh: $('stonesRefresh'), stonesQuery: $('stonesQuery'), stonesHead: $('stonesHead'), stonesList: $('stonesList'), stoneDetailTitle: $('stoneDetailTitle'), stoneDetailMeta: $('stoneDetailMeta'),
   stoneDetailSummary: $('stoneDetailSummary'), stoneDetailRaw: $('stoneDetailRaw'), copyStoneHash: $('copyStoneHash'),
   stonesEmptyState: $('stonesEmptyState'), stonesDetailBlock: $('stonesDetailBlock'), stonesRawBlock: $('stonesRawBlock'),
@@ -380,8 +414,16 @@ function loadSettings() {
   e.inboxActor.value = localStorage.getItem('cs.inboxActor') || e.actorId.value;
   e.activityActors.value = localStorage.getItem('cs.activityActors') || e.actorId.value;
   e.operatorToken.value = sessionStorage.getItem('cs.operatorToken') || '';
+  state.coreAuth = readCoreAuthSession();
+  if (state.coreAuth) {
+    try {
+      if (new URL(e.runtimeUrl.value).origin === state.coreAuth.runtime_origin) e.runtimeUrl.value = state.coreAuth.mcp_url;
+    } catch { /* keep configured runtime */ }
+  }
   state.chatThreadId = ensureChatThreadId();
   if (e.toolDelegate) e.toolDelegate.checked = localStorage.getItem('cs.chat.toolDelegate.v1') === '1';
+  if (e.conversationSyncMode) e.conversationSyncMode.value = localStorage.getItem('cs.turnsync.mode.v1') || 'ask';
+  if (e.conversationSyncPayload) e.conversationSyncPayload.value = localStorage.getItem('cs.turnsync.payload.v1') || 'full_turns';
 
   const priorChain = localStorage.getItem('cs.chain') || DEFAULT_CHAIN;
   try {
@@ -407,19 +449,151 @@ function saveSettings() {
   localStorage.setItem('cs.scope.v1', JSON.stringify(normalizeScope(state.scope)));
   if (state.scope.mode === 'single_chain' && state.scope.chains?.[0]) localStorage.setItem('cs.chain', state.scope.chains[0]);
   if (e.toolDelegate) localStorage.setItem('cs.chat.toolDelegate.v1', e.toolDelegate.checked ? '1' : '0');
+  if (e.conversationSyncMode) localStorage.setItem('cs.turnsync.mode.v1', e.conversationSyncMode.value);
+  if (e.conversationSyncPayload) localStorage.setItem('cs.turnsync.payload.v1', e.conversationSyncPayload.value);
   saveActorNavSettings();
 }
 
-async function mcpCall(name, args = {}) {
+function readCoreAuthSession() {
+  try {
+    const parsed = JSON.parse(sessionStorage.getItem(CORE_AUTH_SESSION_KEY) || 'null');
+    return parsed && parsed.access_token && parsed.refresh_token ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCoreAuthSession(session) {
+  state.coreAuth = session || null;
+  if (session) sessionStorage.setItem(CORE_AUTH_SESSION_KEY, JSON.stringify(session));
+  else sessionStorage.removeItem(CORE_AUTH_SESSION_KEY);
+  renderCoreAuthStatus();
+}
+
+function renderCoreAuthStatus() {
+  if (!e.coreAuthStatus) return;
+  const session = state.coreAuth;
+  const connected = Boolean(session?.access_token && session?.refresh_token);
+  if (e.coreAuthConnect) e.coreAuthConnect.disabled = connected;
+  if (e.coreAuthSignOut) e.coreAuthSignOut.disabled = !connected;
+  if (!connected) {
+    e.coreAuthStatus.textContent = 'Core account not connected. Legacy MCP remains available.';
+    return;
+  }
+  const identity = session.connection_id || session.principal_id || 'authenticated connection';
+  e.coreAuthStatus.textContent = `Core account connected · ${identity} · tokens stay in this browser tab/session only.`;
+}
+
+async function oauthPost(url, params) {
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
+    body: params.toString()
+  });
+  let out;
+  try { out = await response.json(); } catch { throw new Error(`OAuth HTTP ${response.status}`); }
+  if (!response.ok || out?.ok === false || out?.error) {
+    const err = new Error(out?.error_description || out?.detail || out?.error || `OAuth HTTP ${response.status}`);
+    err.payload = out;
+    throw err;
+  }
+  return out;
+}
+
+async function refreshCoreAuthSession() {
+  const prior = state.coreAuth || readCoreAuthSession();
+  if (!prior?.refresh_token || !prior?.runtime_origin) throw new Error('Core sign-in required');
+  try {
+    const endpoints = oauthEndpoints(prior.runtime_origin);
+    const out = await oauthPost(endpoints.token, refreshTokenBody({ refreshToken: prior.refresh_token, runtimeUrl: prior.runtime_origin }));
+    const next = tokenSessionFromResponse(out, { runtimeUrl: prior.runtime_origin, prior });
+    writeCoreAuthSession(next);
+    return next;
+  } catch (err) {
+    writeCoreAuthSession(null);
+    throw err;
+  }
+}
+
+async function startCoreAuth() {
+  const runtimeUrl = e.runtimeUrl.value.trim() || DEFAULT_RUNTIME;
+  const verifier = randomPkceVerifier();
+  const oauthState = crypto.randomUUID();
+  sessionStorage.setItem(CORE_AUTH_FLOW_KEY, JSON.stringify({ verifier, state: oauthState, runtime_url: runtimeUrl, created_at_ms: Date.now() }));
+  const authorizeUrl = await buildAuthorizeUrl({ runtimeUrl, verifier, state: oauthState });
+  window.location.assign(authorizeUrl);
+}
+
+async function handleCoreAuthCallback() {
+  const callback = parseOAuthCallback(window.location);
+  if (!callback) return false;
+  let flow;
+  try { flow = JSON.parse(sessionStorage.getItem(CORE_AUTH_FLOW_KEY) || 'null'); } catch { flow = null; }
+  const cleanup = () => {
+    sessionStorage.removeItem(CORE_AUTH_FLOW_KEY);
+    history.replaceState({}, '', stripOAuthCallbackFromUrl(window.location));
+  };
+  if (callback.error) {
+    cleanup();
+    throw new Error(callback.error_description || callback.error);
+  }
+  if (!flow?.verifier || !flow?.runtime_url || !flow?.state || callback.state !== flow.state) {
+    cleanup();
+    throw new Error('OAuth callback state mismatch or expired Console flow');
+  }
+  const endpoints = oauthEndpoints(flow.runtime_url);
+  const out = await oauthPost(endpoints.token, authorizationCodeTokenBody({
+    code: callback.code,
+    verifier: flow.verifier,
+    runtimeUrl: flow.runtime_url
+  }));
+  const session = tokenSessionFromResponse(out, { runtimeUrl: flow.runtime_url });
+  cleanup();
+  writeCoreAuthSession(session);
+  e.runtimeUrl.value = session.mcp_url;
+  saveSettings();
+  syncContextBar();
+  return true;
+}
+
+async function signOutCoreAuth() {
+  const session = state.coreAuth || readCoreAuthSession();
+  if (session?.refresh_token && session?.runtime_origin) {
+    try {
+      const endpoints = oauthEndpoints(session.runtime_origin);
+      const params = new URLSearchParams();
+      params.set('token', session.refresh_token);
+      params.set('client_id', CORE_AUTH_CLIENT_ID);
+      await oauthPost(endpoints.revoke, params);
+    } catch { /* local sign-out still clears browser bearer state */ }
+  }
+  const legacyOrigin = session?.runtime_origin || new URL(e.runtimeUrl.value.trim() || DEFAULT_RUNTIME).origin;
+  writeCoreAuthSession(null);
+  state.turnSyncPolicy = null;
+  e.runtimeUrl.value = `${legacyOrigin}/mcp`;
+  saveSettings();
+  syncContextBar();
+  await health().catch(() => {});
+}
+
+async function mcpCall(name, args = {}, { authRetry = true } = {}) {
   saveSettings();
   const MCP_CALL_TIMEOUT_MS = 10000; // 8–12s band — fail closed, never hang Work resolve
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), MCP_CALL_TIMEOUT_MS);
   let r;
+  const runtimeUrl = e.runtimeUrl.value.trim();
+  const headers = { 'Content-Type': 'application/json', 'Accept': 'application/json' };
+  if (isCoreAuthMcpUrl(runtimeUrl)) {
+    let session = state.coreAuth || readCoreAuthSession();
+    if (!session) throw new Error('Core sign-in required for /mcp/core-auth');
+    if (!sessionUsable(session, runtimeUrl)) session = await refreshCoreAuthSession();
+    headers.Authorization = `Bearer ${session.access_token}`;
+  }
   try {
-    r = await fetch(e.runtimeUrl.value.trim(), {
+    r = await fetch(runtimeUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      headers,
       body: JSON.stringify({ jsonrpc: '2.0', id: crypto.randomUUID(), method: 'tools/call', params: { name, arguments: args } }),
       signal: controller.signal
     });
@@ -435,6 +609,10 @@ async function mcpCall(name, args = {}) {
     throw err;
   } finally {
     clearTimeout(timeoutId);
+  }
+  if (r.status === 401 && isCoreAuthMcpUrl(runtimeUrl) && authRetry) {
+    await refreshCoreAuthSession();
+    return mcpCall(name, args, { authRetry: false });
   }
   if (!r.ok) throw new Error(`MCP HTTP ${r.status}`);
   const rpc = await r.json();
@@ -1842,6 +2020,244 @@ async function handoff() {
     toast(err.message);
   } finally {
     busy(e.handoffButton, false, 'Dispatch handoff');
+  }
+}
+
+function turnSyncCoreConnected() {
+  return Boolean(state.coreAuth?.access_token && isCoreAuthMcpUrl(e.runtimeUrl?.value?.trim() || ''));
+}
+
+function turnSyncDraftPolicy() {
+  return normalizeTurnSyncPolicy({
+    mode: e.conversationSyncMode?.value || 'ask',
+    payload: e.conversationSyncPayload?.value || 'full_turns'
+  });
+}
+
+function syncConversationPolicyUi({ persistDraft = true } = {}) {
+  if (!e.conversationSyncMode || !e.conversationSyncPayload || !e.conversationSyncNote) return;
+  if (persistDraft) saveSettings();
+  const draft = turnSyncDraftPolicy();
+  const connected = turnSyncCoreConnected();
+  if (e.conversationSyncSave) e.conversationSyncSave.disabled = !connected;
+
+  if (!connected) {
+    e.conversationSyncNote.textContent = `Browser draft: ${draft.mode.toUpperCase()} · ${draft.payload}. Connect Core account to read/save the authenticated account default. This draft is not standing authorization and never creates accepted project state.`;
+    return;
+  }
+
+  const effective = state.turnSyncPolicy?.effective || null;
+  if (!effective) {
+    e.conversationSyncNote.textContent = `Core account connected. Draft: ${draft.mode.toUpperCase()} · ${draft.payload}. Load/refresh the saved account default before relying on it; no hidden upload occurs from changing these selects.`;
+    return;
+  }
+
+  const same = effective.mode === draft.mode && effective.payload_mode === draft.payload;
+  const source = state.turnSyncPolicy?.defaulted ? 'safe default' : 'saved account default';
+  const rev = Number(effective.revision || 0);
+  const selective = draft.payload !== 'full_turns'
+    ? ' Selective payload mode is stored as policy but automatic append fails closed until the trusted transformer exists.'
+    : '';
+  e.conversationSyncNote.textContent = same
+    ? `${source}: ${draft.mode.toUpperCase()} · ${draft.payload}${rev ? ` · rev ${rev}` : ''}. Workspace/chain policies may override this account default for a bound Conversation Session. accepted_state_authority=false.${selective}`
+    : `Unsaved browser draft: ${draft.mode.toUpperCase()} · ${draft.payload}. Current ${source}: ${String(effective.mode || 'ask').toUpperCase()} · ${effective.payload_mode || 'full_turns'}${rev ? ` · rev ${rev}` : ''}. Use Save account policy to commit this operational setting.${selective}`;
+}
+
+async function loadTurnSyncPolicy({ quiet = false } = {}) {
+  if (!turnSyncCoreConnected()) {
+    state.turnSyncPolicy = null;
+    syncConversationPolicyUi({ persistDraft: false });
+    return null;
+  }
+  try {
+    const result = await mcpCall('cairnstone_turnsync_policy_get', {});
+    state.turnSyncPolicy = result;
+    const effective = result?.effective;
+    if (effective?.mode) e.conversationSyncMode.value = effective.mode;
+    if (effective?.payload_mode) e.conversationSyncPayload.value = effective.payload_mode;
+    saveSettings();
+    syncConversationPolicyUi({ persistDraft: false });
+    return result;
+  } catch (err) {
+    state.turnSyncPolicy = null;
+    syncConversationPolicyUi({ persistDraft: false });
+    if (!quiet) toast(err.message || 'TurnSync policy could not be loaded');
+    throw err;
+  }
+}
+
+async function saveTurnSyncPolicy() {
+  if (!turnSyncCoreConnected()) return toast('Connect Core account before saving TurnSync policy');
+  const draft = turnSyncDraftPolicy();
+  const effective = state.turnSyncPolicy?.effective || null;
+  const args = {
+    scope_kind: 'account',
+    mode: draft.mode,
+    payload_mode: draft.payload,
+    human_commit: true
+  };
+  if (effective?.scope_kind === 'account' && Number(effective.revision || 0) > 0) {
+    args.base_revision = Number(effective.revision);
+  }
+  busy(e.conversationSyncSave, true, 'Saving…');
+  try {
+    await mcpCall('cairnstone_turnsync_policy_set', args);
+    await loadTurnSyncPolicy({ quiet: true });
+    toast('TurnSync account policy saved');
+  } catch (err) {
+    if (err.payload?.error === 'turnsync_policy_conflict' || err.payload?.error === 'turnsync_policy_revision_required') {
+      await loadTurnSyncPolicy({ quiet: true }).catch(() => {});
+      toast('TurnSync policy changed elsewhere; reloaded current revision');
+    } else {
+      toast(err.message || 'TurnSync policy save failed');
+    }
+  } finally {
+    busy(e.conversationSyncSave, false, 'Save account policy');
+    syncConversationPolicyUi({ persistDraft: false });
+  }
+}
+
+function renderConversationAggregateNote() {
+  if (!e.conversationAggregateNote) return;
+  const aggregate = state.conversationAggregate;
+  if (!aggregate) {
+    e.conversationAggregateNote.textContent = 'Runtime will prefer the authenticated account aggregate when available; legacy runtimes fall back to one actor-scoped Conversation Session list.';
+    return;
+  }
+  if (aggregate.ok === true) {
+    const counts = aggregate.counts || {};
+    const identities = aggregate.identity_scope?.identities?.length ?? counts.identities ?? 0;
+    e.conversationAggregateNote.textContent = `Authenticated account aggregate · ${identities} identities · ${counts.mailbox_threads ?? 0} mailbox threads · ${counts.task_runs ?? 0} task runs · ${counts.events ?? 0} events. Visibility comes from server-resolved active connections; Console filters only narrow it.`;
+    return;
+  }
+  const detail = aggregate.error ? ` (${aggregate.error})` : '';
+  e.conversationAggregateNote.textContent = `Legacy actor fallback${detail}. Cross-provider account correlation is unavailable on this runtime; no broader visibility is inferred by the Console.`;
+}
+
+async function refreshConversations() {
+  const actor = (e.actorId?.value || '').trim();
+  busy(e.conversationsRefresh, true, 'Loading…');
+  await loadTurnSyncPolicy({ quiet: true }).catch(() => {});
+  if (e.conversationsList) e.conversationsList.innerHTML = '<p class="muted">Loading Conversation Sessions…</p>';
+  try {
+    try {
+      const aggregate = await mcpCall('cairnstone_unified_conversations', { limit: 50 });
+      state.conversationAggregate = aggregate;
+      state.conversations = (aggregate.conversations || []).map(normalizeConversationSession);
+    } catch (aggregateError) {
+      if (!actor) throw new Error('Actor ID required for legacy Conversation Session fallback');
+      const r = await mcpCall('cairnstone_conversation_session_list', { actor_id: actor, limit: 50 });
+      state.conversationAggregate = { ok: false, fallback: true, error: aggregateError?.message || 'unified_conversations_unavailable' };
+      state.conversations = (r.conversations || []).map(normalizeConversationSession);
+    }
+    renderConversationAggregateNote();
+    renderConversations();
+    toast(`${state.conversations.length} conversation${state.conversations.length === 1 ? '' : 's'} visible to ${actor}`);
+  } catch (err) {
+    state.conversations = [];
+    state.conversationAggregate = null;
+    renderConversationAggregateNote();
+    if (e.conversationsList) e.conversationsList.innerHTML = `<p class="muted">${esc(err.message)}</p>`;
+    toast(err.message);
+  } finally {
+    busy(e.conversationsRefresh, false, 'Refresh');
+  }
+}
+
+function renderConversations() {
+  if (!e.conversationsList) return;
+  const q = e.conversationsSearch?.value || '';
+  const rows = (state.conversations || []).filter(x => conversationSearchMatches(x, q));
+  if (!rows.length) {
+    e.conversationsList.innerHTML = `<p class="muted">${q ? 'No matching Conversation Sessions.' : 'No Conversation Sessions visible to the current actor.'}</p>`;
+    return;
+  }
+  e.conversationsList.innerHTML = '';
+  for (const session of rows) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'message-item';
+    const actors = session.participants.length ? session.participants.join(', ') : 'no participant metadata';
+    b.innerHTML = `<strong>${esc(session.conversation_id || '(missing conversation_id)')}</strong><div class="meta">${esc(session.status)} · ${session.turn_count} stored turn${session.turn_count === 1 ? '' : 's'} · rev ${esc(session.session_revision ?? '—')}</div><div class="meta">${esc(actors)}</div>`;
+    b.addEventListener('click', () => selectConversation(session));
+    e.conversationsList.append(b);
+  }
+}
+
+async function selectConversation(summary) {
+  const actor = (e.actorId?.value || '').trim();
+  const conversationId = summary?.conversation_id;
+  if (!actor || !conversationId) return toast('Actor and conversation ID are required');
+  if (e.conversationDetailTitle) e.conversationDetailTitle.textContent = 'Loading conversation…';
+  try {
+    const r = await mcpCall('cairnstone_conversation_session_get', {
+      conversation_id: conversationId,
+      actor_id: actor,
+      include_turns: true
+    });
+    state.selectedConversation = normalizeConversationSession(r);
+    renderConversationDetail();
+  } catch (err) {
+    state.selectedConversation = null;
+    if (e.conversationDetailTitle) e.conversationDetailTitle.textContent = 'Conversation unavailable';
+    if (e.conversationDigest) e.conversationDigest.textContent = err.message;
+    if (e.conversationJevNext) e.conversationJevNext.disabled = true;
+    toast(err.message);
+  }
+}
+
+function renderConversationDetail() {
+  const s = state.selectedConversation;
+  if (!s) return;
+  if (e.conversationDetailTitle) e.conversationDetailTitle.textContent = s.conversation_id || 'Conversation';
+  if (e.conversationDetailMeta) {
+    e.conversationDetailMeta.innerHTML = [
+      ['status', s.status],
+      ['revision', s.session_revision ?? '—'],
+      ['turns', s.turn_count],
+      ['actors', s.participants.length],
+      ['chain', s.selected_chain || '—'],
+      ['project_memory', 'false']
+    ].map(([k, v]) => chip(`${k}: ${v}`)).join('');
+  }
+  const digest = conversationDigest(s);
+  if (e.conversationDigest) e.conversationDigest.textContent = JSON.stringify(digest, null, 2);
+  if (e.conversationTurns) {
+    e.conversationTurns.innerHTML = s.turns.length ? '' : '<p class="muted">No durable turns stored in this session.</p>';
+    for (const turn of s.turns) {
+      const row = document.createElement('div');
+      row.className = 'message-item';
+      const preview = turn.content_preview || (turn.content_ref ? `Content ref: ${turn.content_ref}` : 'No content preview stored');
+      row.innerHTML = `<strong>${esc(turn.actor_id || 'unattributed')} · ${esc(turn.role)} · ${esc(turn.turn_type)}</strong><div class="meta">${esc(turn.turn_id || '—')} · ${esc(turn.message_id || '—')}${turn.created_at ? ` · ${esc(new Date(turn.created_at).toLocaleString())}` : ''}</div><div class="meta">${esc(preview)}</div>`;
+      e.conversationTurns.append(row);
+    }
+  }
+  if (e.conversationJevNext) e.conversationJevNext.disabled = false;
+  if (e.conversationJevResult) e.conversationJevResult.textContent = 'JEV is used here for bounded next-action ranking, not free-form summarization.';
+}
+
+async function scoreConversationNextAction() {
+  const s = state.selectedConversation;
+  if (!s) return toast('Select a Conversation Session first');
+  const prepared = buildJevNextActionArgs({
+    task: `Rank the safest, most useful next action for Conversation Session ${s.conversation_id}. Preserve actor identities and do not grant execution authority.`,
+    candidates: buildNextActionCandidates(s)
+  });
+  if (!prepared.ok) return toast(prepared.errors?.[0] || 'No next-action candidates');
+  if (workerHasTool('ask_jev') === false) {
+    if (e.conversationJevResult) e.conversationJevResult.textContent = 'ask_jev is not exposed by the current runtime.';
+    return toast('ask_jev is not available');
+  }
+  busy(e.conversationJevNext, true, 'Scoring…');
+  try {
+    const r = await mcpCall(prepared.tool, prepared.args);
+    if (e.conversationJevResult) e.conversationJevResult.textContent = JSON.stringify(r, null, 2);
+    toast('JEV next-action score ready');
+  } catch (err) {
+    if (e.conversationJevResult) e.conversationJevResult.textContent = JSON.stringify(err.payload || { error: err.message }, null, 2);
+    toast(err.message);
+  } finally {
+    busy(e.conversationJevNext, false, 'JEV next action');
   }
 }
 
@@ -3255,7 +3671,8 @@ function syncCommsHub(panelName) {
   const map = {
     inbox: { eyebrow: 'inboxHubEyebrow', blurb: 'inboxHubBlurb', scope: 'inboxHubScopeNote' },
     handoff: { eyebrow: 'handoffHubEyebrow', blurb: 'handoffHubBlurb', scope: 'handoffHubScopeNote' },
-    activity: { eyebrow: 'activityHubEyebrow', blurb: 'activityHubBlurb', scope: 'activityHubScopeNote' }
+    activity: { eyebrow: 'activityHubEyebrow', blurb: 'activityHubBlurb', scope: 'activityHubScopeNote' },
+    conversations: { eyebrow: 'conversationsHubEyebrow', blurb: 'conversationsHubBlurb', scope: 'conversationsHubScopeNote' }
   };
   const ids = map[panelName];
   if (!ids) return;
@@ -3493,6 +3910,17 @@ if (e.contextViewsBtn) e.contextViewsBtn.addEventListener('click', () => openShe
 if (e.savedViewSave) e.savedViewSave.addEventListener('click', saveCurrentSavedView);
 if (e.settingsOpenSheet) e.settingsOpenSheet.addEventListener('click', () => openSheet('runtimeSheet'));
 if (e.runtimeSheetRecheck) e.runtimeSheetRecheck.addEventListener('click', () => health().catch(() => {}));
+if (e.coreAuthConnect) e.coreAuthConnect.addEventListener('click', async () => {
+  busy(e.coreAuthConnect, true, 'Opening sign-in…');
+  try { await startCoreAuth(); } catch (err) { toast(err.message || 'Core sign-in could not start'); }
+  finally { busy(e.coreAuthConnect, false, 'Connect Core account'); }
+});
+if (e.coreAuthSignOut) e.coreAuthSignOut.addEventListener('click', async () => {
+  busy(e.coreAuthSignOut, true, 'Disconnecting…');
+  try { await signOutCoreAuth(); toast('Core account disconnected from this Console session'); }
+  catch (err) { toast(err.message || 'Core disconnect failed'); }
+  finally { busy(e.coreAuthSignOut, false, 'Disconnect Core'); }
+});
 if (e.universeOpenScope) e.universeOpenScope.addEventListener('click', () => openSheet('scopeSheet'));
 if (e.universeOpenRuntime) e.universeOpenRuntime.addEventListener('click', () => openSheet('runtimeSheet'));
 if (e.openChatConfig) e.openChatConfig.addEventListener('click', () => openSheet('chatConfigSheet'));
@@ -3527,6 +3955,12 @@ if (e.toolDelegate) e.toolDelegate.addEventListener('change', () => { saveSettin
 e.activityRefresh.addEventListener('click', refreshActivity);
 e.activityFilter.addEventListener('change', renderActivity);
 e.activityGroupThreads.addEventListener('change', renderActivity);
+if (e.conversationsRefresh) e.conversationsRefresh.addEventListener('click', refreshConversations);
+if (e.conversationsSearch) e.conversationsSearch.addEventListener('input', renderConversations);
+if (e.conversationSyncMode) e.conversationSyncMode.addEventListener('change', syncConversationPolicyUi);
+if (e.conversationSyncPayload) e.conversationSyncPayload.addEventListener('change', syncConversationPolicyUi);
+if (e.conversationSyncSave) e.conversationSyncSave.addEventListener('click', () => saveTurnSyncPolicy());
+if (e.conversationJevNext) e.conversationJevNext.addEventListener('click', scoreConversationNextAction);
 if (e.inboxActor) {
   e.inboxActor.addEventListener('change', () => {
     ingestCustomActorField(e.inboxActor.value, { into: 'inbox' });
@@ -3654,6 +4088,15 @@ if (codeSessionInput) {
 }
 
 loadSettings();
+renderCoreAuthStatus();
+try {
+  if (await handleCoreAuthCallback()) toast('Core account connected');
+} catch (err) {
+  renderCoreAuthStatus();
+  toast(err.message || 'Core OAuth callback failed');
+}
+syncConversationPolicyUi({ persistDraft: false });
+await loadTurnSyncPolicy({ quiet: true }).catch(() => {});
 renderChatMode();
 syncContextBar();
 syncSavedViewsContextLabel();

@@ -1,0 +1,31 @@
+name: V7.7.10j Console feature validation
+
+on:
+  push:
+    branches:
+      - v7710j-turnsync-console
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact pushed commit
+        uses: actions/checkout@v4
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Syntax checks
+        run: node --check app.js && node --check turn-sync.js && node --check core-auth-client.js
+
+      - name: Focused V7.7.10j Console tests
+        run: node --test turn-sync.test.js core-auth-client.test.js
+
+      - name: Full Console test suite
+        run: node --test *.test.js

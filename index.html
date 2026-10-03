@@ -58,10 +58,11 @@
         <button id="healthButton" class="visually-hidden" type="button" tabindex="-1" aria-hidden="true">Health</button>
       </header>
 
-      <div id="inboxSubnav" class="subnav hidden" role="tablist" aria-label="Communications: Inbox, Handoff, Activity">
+      <div id="inboxSubnav" class="subnav hidden" role="tablist" aria-label="Communications: Inbox, Handoff, Activity, Conversations">
         <button class="subnav-item active" data-panel="inbox" type="button" title="Inbox — Read correspondence">Inbox</button>
         <button class="subnav-item" data-panel="handoff" type="button" title="Handoff — Dispatch structured handoff">Handoff</button>
         <button class="subnav-item" data-panel="activity" type="button" title="Activity — Cross-actor activity">Activity</button>
+        <button class="subnav-item" data-panel="conversations" type="button" title="Conversations — Unified TurnSync view">Conversations</button>
       </div>
       <div id="moreSubnav" class="subnav hidden" role="tablist" aria-label="More surfaces">
         <button class="subnav-item" data-panel="stones" type="button">Stones</button>
@@ -227,6 +228,53 @@
           <fieldset><legend>External GitHub inbox mirror <small>(optional transport only)</small></legend><p class="muted small">Writes one inspectable JSON mirror per recipient. The immutable AC1 message stone remains authority; mirror failure does not roll back the handoff.</p><div class="two-col"><label><span>Owner</span><input id="mirrorOwner" placeholder="nothinginfinity"></label><label><span>Repo</span><input id="mirrorRepo" placeholder="cairnstone-v6-console"></label></div><div class="two-col"><label><span>Branch</span><input id="mirrorBranch" placeholder="main"></label><label><span>Path prefix</span><input id="mirrorPrefix" placeholder="cairnstone-inbox"></label></div></fieldset>
           <button id="handoffButton" class="primary" type="button">Dispatch handoff</button>
           <pre id="handoffResult" class="code-block wrap">No handoff sent yet.</pre>
+        </div>
+      </section>
+      <section id="panel-conversations" class="panel">
+        <div class="card comms-hub-card">
+          <div class="section-heading">
+            <div>
+              <div class="eyebrow" id="conversationsHubEyebrow">TurnSync · Conversation Sessions</div>
+              <h2>Conversations</h2>
+            </div>
+            <button id="conversationsRefresh" class="secondary" type="button">Refresh</button>
+          </div>
+          <p id="conversationsHubBlurb" class="muted small comms-hub-blurb">Durable turn-by-turn operational history across selected actors and providers. Exact Conversation Session identities are preserved; Console does not promote conversation history to project memory.</p>
+          <div id="conversationsHubScopeNote" class="scope-caveat">Conversation Sessions are operational context, not accepted project state. Sync and synthesis must preserve explicit authority boundaries.</div>
+          <p id="conversationAggregateNote" class="muted small">Runtime will prefer the authenticated account aggregate when available; legacy runtimes fall back to one actor-scoped Conversation Session list.</p>
+          <label><span>Search conversations</span><input id="conversationsSearch" placeholder="conversation ID, actor, turn preview…" autocomplete="off" spellcheck="false"></label>
+          <div class="form-grid two">
+            <label><span>TurnSync account default <small>(Core-auth operational policy)</small></span>
+              <select id="conversationSyncMode">
+                <option value="ask">Ask</option>
+                <option value="on">On</option>
+                <option value="off">Off</option>
+              </select>
+            </label>
+            <label><span>Payload mode</span>
+              <select id="conversationSyncPayload">
+                <option value="full_turns">Full turns</option>
+                <option value="decisions_tasks">Decisions + tasks</option>
+                <option value="summaries">Summaries only</option>
+              </select>
+            </label>
+          </div>
+          <div class="invite-actions">
+            <button id="conversationSyncSave" class="primary compact-button" type="button">Save account policy</button>
+          </div>
+          <p id="conversationSyncNote" class="muted small">Connect Core account to load or save the authenticated account default. Local values are only a browser draft until an explicit save succeeds.</p>
+          <div id="conversationsList" class="message-list" aria-live="polite"><p class="muted">Refresh to load Conversation Sessions visible to the current actor.</p></div>
+        </div>
+        <div class="card">
+          <div class="section-heading">
+            <div><div class="eyebrow">Unified turn detail</div><h2 id="conversationDetailTitle">No conversation selected</h2></div>
+            <button id="conversationJevNext" class="secondary" type="button" disabled>JEV next action</button>
+          </div>
+          <div id="conversationDetailMeta" class="chips"></div>
+          <pre id="conversationDigest" class="code-block wrap">Select a Conversation Session to see a deterministic digest of stored turns.</pre>
+          <div id="conversationTurns" class="message-list" aria-live="polite"></div>
+          <div class="eyebrow">JEV scorer result</div>
+          <pre id="conversationJevResult" class="code-block wrap">JEV is used here for bounded next-action ranking, not free-form summarization.</pre>
         </div>
       </section>
       <section id="panel-activity" class="panel">
@@ -823,6 +871,11 @@ grok-bot:cairnstone-v6</textarea></label>
       <div class="sheet-body">
         <p class="muted small">Console actions never grant delegated execution or mutation authority. Values are browser-local only.</p>
         <label><span>Runtime MCP</span><input id="runtimeUrl" autocomplete="url"></label>
+        <div class="invite-actions">
+          <button id="coreAuthConnect" class="primary" type="button">Connect Core account</button>
+          <button id="coreAuthSignOut" class="secondary" type="button" disabled>Disconnect Core</button>
+        </div>
+        <p id="coreAuthStatus" class="muted small" aria-live="polite">Core account not connected. Legacy MCP remains available.</p>
         <label><span>Actor ID</span><input id="actorId" value="console:jared" autocomplete="off"></label>
         <div class="invite-actions">
           <button id="runtimeSheetRecheck" class="primary" type="button">Recheck health</button>
