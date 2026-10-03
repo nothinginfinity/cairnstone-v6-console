@@ -41,6 +41,8 @@ export function shouldSyncTurn(policy, turn = {}) {
   if (p.payload === 'decisions_tasks') {
     return ['decision', 'task', 'task_request', 'task_result', 'handoff', 'checkpoint'].includes(kind);
   }
+  // summaries mode means the provider-side bridge should append a bounded summary/reference turn,
+  // not silently transform raw content in this presentation helper.
   return kind === 'summary';
 }
 
