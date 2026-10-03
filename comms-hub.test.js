@@ -1,5 +1,5 @@
 /**
- * Unit tests for V7.7.9c communications hub helpers.
+ * Unit tests for V7.7.10j communications hub helpers.
  * Run: node --test comms-hub.test.js
  */
 import { describe, it } from 'node:test';
@@ -20,19 +20,20 @@ import {
 describe('comms hub intents', () => {
   it('exposes Inbox · Handoff · Activity with distinct intents', () => {
     const items = commsSubnavItems();
-    assert.deepEqual(items.map(i => i.panel), ['inbox', 'handoff', 'activity']);
+    assert.deepEqual(items.map(i => i.panel), ['inbox', 'handoff', 'activity', 'conversations']);
     assert.match(COMMS_SURFACES.inbox.intent, /Read/i);
     assert.match(COMMS_SURFACES.handoff.intent, /Dispatch/i);
     assert.match(COMMS_SURFACES.activity.intent, /activity/i);
+    assert.match(COMMS_SURFACES.conversations.intent, /turn/i);
   });
 
   it('banner preserves AC1 boundaries and no execution authority', () => {
-    for (const panel of ['inbox', 'handoff', 'activity']) {
+    for (const panel of ['inbox', 'handoff', 'activity', 'conversations']) {
       const b = commsHubBanner(panel);
       assert.equal(b.grantsExecutionAuthority, false);
       assert.equal(b.acceptedStateAuthority, false);
       assert.match(b.identityNote, /stone_hash|message_id/);
-      assert.match(b.scopeNote, /Scope/i);
+      assert.match(b.scopeNote, /Scope|authority boundaries/i);
     }
   });
 });

@@ -1,0 +1,16 @@
+{
+  "client_id": "https://nothinginfinity.github.io/cairnstone-v6-console/oauth-client-metadata.json",
+  "client_name": "CairnStone Console",
+  "redirect_uris": [
+    "https://nothinginfinity.github.io/cairnstone-v6-console/"
+  ],
+  "grant_types": [
+    "authorization_code",
+    "refresh_token"
+  ],
+  "response_types": [
+    "code"
+  ],
+  "token_endpoint_auth_method": "none",
+  "application_type": "web"
+}

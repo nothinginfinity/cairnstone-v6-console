@@ -1,5 +1,5 @@
 /**
- * V7.7.9c — Communications hub helpers (Inbox · Handoff · Activity).
+ * V7.7.10j — Communications hub helpers (Inbox · Handoff · Activity · Conversations).
  * Presentation consolidation only. Preserves AC1 immutable message identity,
  * evidence-based Scope association, and zero execution authority from correspondence.
  */
@@ -28,6 +28,14 @@ export const COMMS_SURFACES = Object.freeze({
     eyebrow: 'Combined AC1 view',
     blurb: 'Aggregated recent correspondence across actor inboxes you query. Same AC1 stones — presentation grouping only.',
     scopeNote: 'Activity is not silently filtered by global Scope; compact listing metadata does not expose a trustworthy chain field.'
+  },
+  conversations: {
+    id: 'conversations',
+    label: 'Conversations',
+    intent: 'Unified turn view',
+    eyebrow: 'TurnSync · Conversation Sessions',
+    blurb: 'Durable turn-by-turn operational history across selected actors and providers. Exact Conversation Session identities are preserved; Console does not promote conversation history to project memory.',
+    scopeNote: 'Conversation Sessions are operational context, not accepted project state. Sync and synthesis must preserve explicit authority boundaries.'
   }
 });
 
