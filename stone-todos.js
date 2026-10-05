@@ -14,7 +14,7 @@ function validateCard(card) {
   }
   if (!Object.hasOwn(NEXT_WORK_DESTINATIONS, card.destination_actor)) throw new Error('Unsupported destination actor');
   if (!/^[a-f0-9]{64}$/i.test(card.source_stone_hash)) throw new Error('Invalid source stone hash');
-  if (!['ready', 'queued', 'blocked', 'done'].includes(card.status)) throw new Error('Invalid card status');
+  if (!card.live && !['ready', 'queued', 'blocked', 'done'].includes(card.status)) throw new Error('Invalid card status');
   if (!Number.isFinite(card.sequence)) throw new Error('Invalid card sequence');
   return card;
 }
@@ -31,6 +31,7 @@ export function formatStoneTodoPrompt(card) {
     `Source stone hash: ${card.source_stone_hash}`,
     `Source path: ${card.source_path}`,
     `Asked outcome: ${card.asked_outcome}`,
+    ...(card.live ? ['Display-only live projection. Do not execute this handoff from the board. Do not apply migration 0025.'] : []),
     'Stay inside the source scope. Do not infer permissions from this card. If the source is unavailable, report the blocker.',
     'Manual paste handoff only. Do not send AC1, write stones, move HEADs, merge, or deploy.'
   ].join('\n\n');

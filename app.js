@@ -2,6 +2,7 @@ import { initInvitePanel } from './invite.js';
 import { initCodeSessionPanel } from './code-session.js';
 import { initWorkGuidePanel } from './work-guide-panel.js';
 import { initStoneTodos, NEXT_WORK_DESTINATIONS } from './stone-todos.js';
+import { initLiveNextWork } from './stone-todos-live.js';
 import {
   RESPONSE_LOD_MAX,
   RESPONSE_LOD_MIN,
@@ -254,6 +255,8 @@ const state = {
   }
 };
 
+let nextWorkLive = null;
+
 const PRIMARY_BY_PANEL = {
   chat: 'chat',
   code: 'work',
@@ -466,10 +469,13 @@ function readCoreAuthSession() {
 }
 
 function writeCoreAuthSession(session) {
+  const wasConnected = Boolean(state.coreAuth);
   state.coreAuth = session || null;
   if (session) sessionStorage.setItem(CORE_AUTH_SESSION_KEY, JSON.stringify(session));
   else sessionStorage.removeItem(CORE_AUTH_SESSION_KEY);
   renderCoreAuthStatus();
+  if (!session) nextWorkLive?.clear();
+  else if (!wasConnected && state.activePanel === 'next-work') void nextWorkLive?.refresh();
 }
 
 function renderCoreAuthStatus() {
@@ -3658,6 +3664,7 @@ function panel(name) {
   });
   if (primary === 'more') syncSettingsPreview();
   if (panelName === 'universe') syncUniverseLanding();
+  if (panelName === 'next-work') void nextWorkLive?.refresh();
   if (primary === 'inbox') syncCommsHub(panelName);
   if (panelName === 'authorize') syncAuthorizeDisclosure();
   if (panelName === 'evidence') renderEvidence(state.lastResult);
@@ -4082,6 +4089,10 @@ document.addEventListener('keydown', event => {
 
 [e.runtimeUrl, e.actorId, e.inboxActor, e.activityActors].forEach(x => x.addEventListener('change', () => {
   saveSettings();
+  if (x === e.runtimeUrl || x === e.actorId) {
+    nextWorkLive?.clear();
+    if (state.activePanel === 'next-work') void nextWorkLive?.refresh();
+  }
   syncContextBar();
 }));
 const codeSessionInput = $('codeSessionId');
@@ -4146,6 +4157,17 @@ for (const [actor, note] of Object.entries(NEXT_WORK_DESTINATIONS)) {
   $('nextWorkDestinations').append(row);
 }
 void initStoneTodos();
+nextWorkLive = initLiveNextWork({
+  root: $('nextWorkLiveBoard'),
+  status: $('nextWorkLiveStatus'),
+  refreshButton: $('nextWorkLiveRefresh'),
+  read: (name, args) => mcpCall(name, args),
+  sessionKey: () => {
+    const session = state.coreAuth;
+    if (!session?.access_token || !session?.refresh_token || !isCoreAuthMcpUrl(e.runtimeUrl.value.trim())) return null;
+    return `${e.runtimeUrl.value.trim()}|${session.connection_id || session.principal_id || 'core'}|${e.actorId.value}`;
+  }
+});
 
 refreshIntentControls();
 setEventResult(subscribeHonesty());

@@ -367,11 +367,24 @@
           <div class="eyebrow">Stone Todos · manual handoff</div>
           <h2 id="nextWorkTitle">Next Work</h2>
           <p>Choose the next card, copy its prompt, then paste into the destination's live chat. Nothing is sent from this board.</p>
-          <p class="scope-caveat">Fixture data only: 3 illustrative cards with placeholder hashes and paths, not accepted vault work or a second source of truth. Status and ordering are sample values; copying never changes them.</p>
+          <p class="scope-caveat">The Live section reads the current start_here from project memory. This board grants no authority. Display the handoff only; do not execute it here or apply migration 0025.</p>
           <details class="stone-todo-preview">
             <summary>Where to paste · all 5 destinations</summary>
             <div id="nextWorkDestinations"></div>
           </details>
+        </div>
+        <section aria-labelledby="nextWorkLiveTitle">
+          <div class="card">
+            <h3 id="nextWorkLiveTitle">Live</h3>
+            <p class="muted small">Read-only · cairnstone-v6-project-memory · start_here</p>
+            <button id="nextWorkLiveRefresh" class="secondary stone-todo-live-refresh" type="button">Refresh Live</button>
+            <p id="nextWorkLiveStatus" class="small" role="status" aria-live="polite">Connect your Core account to load Live. Samples below are not live work.</p>
+          </div>
+          <div id="nextWorkLiveBoard" class="stone-todo-board" aria-label="Live start_here card"></div>
+        </section>
+        <div class="card stone-todo-sample-heading">
+          <h3>SAMPLE ONLY</h3>
+          <p class="scope-caveat">3 illustrative fixture cards with placeholder hashes and paths, not accepted vault work. Status and ordering are sample values; copying never changes them. Samples are never substituted for Live.</p>
         </div>
         <div id="nextWorkBoard" class="stone-todo-board" aria-label="Sample next work cards"></div>
       </section>
