@@ -400,3 +400,6 @@ html.cs-reduced-motion .universe-node.active,html.cs-reduced-motion .universe-no
 .stone-todo-preview summary{cursor:pointer;min-height:44px;display:flex;align-items:center}
 .stone-todo-prompt{width:100%;box-sizing:border-box;font-size:16px;white-space:pre-wrap;overflow-wrap:anywhere}
 .stone-todo-feedback{min-height:1.5em}
+.stone-todo-live-refresh{min-height:48px}
+.stone-todo-sample-heading{margin-top:20px}
+#nextWorkLiveStatus{overflow-wrap:anywhere}
