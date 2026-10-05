@@ -58,6 +58,10 @@
         <button id="healthButton" class="visually-hidden" type="button" tabindex="-1" aria-hidden="true">Health</button>
       </header>
 
+      <div id="workSubnav" class="subnav hidden" role="tablist" aria-label="Work surfaces">
+        <button class="subnav-item" data-panel="code" type="button">Current Work</button>
+        <button class="subnav-item" data-panel="next-work" type="button">Next Work</button>
+      </div>
       <div id="inboxSubnav" class="subnav hidden" role="tablist" aria-label="Communications: Inbox, Handoff, Activity, Conversations">
         <button class="subnav-item active" data-panel="inbox" type="button" title="Inbox — Read correspondence">Inbox</button>
         <button class="subnav-item" data-panel="handoff" type="button" title="Handoff — Dispatch structured handoff">Handoff</button>
@@ -357,6 +361,19 @@
           <div id="accessGrantsHonesty" class="muted small" aria-live="polite">Load grants after worker 0.5.40 exposes <code>cairnstone_access_grant_list</code>.</div>
           <div id="accessGrantsList" class="message-list" aria-live="polite"><p class="muted">No grants loaded.</p></div>
         </div>
+      </section>
+      <section id="panel-next-work" class="panel" aria-labelledby="nextWorkTitle">
+        <div class="card">
+          <div class="eyebrow">Stone Todos · manual handoff</div>
+          <h2 id="nextWorkTitle">Next Work</h2>
+          <p>Choose the next card, copy its prompt, then paste into the destination's live chat. Nothing is sent from this board.</p>
+          <p class="scope-caveat">Fixture data only: 3 illustrative cards with placeholder hashes and paths, not accepted vault work or a second source of truth. Status and ordering are sample values; copying never changes them.</p>
+          <details class="stone-todo-preview">
+            <summary>Where to paste · all 5 destinations</summary>
+            <div id="nextWorkDestinations"></div>
+          </details>
+        </div>
+        <div id="nextWorkBoard" class="stone-todo-board" aria-label="Sample next work cards"></div>
       </section>
       <section id="panel-code" class="panel">
         <div class="card work-guide-card" id="workGuideCard">

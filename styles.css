@@ -385,3 +385,18 @@ html.cs-reduced-motion .universe-node.active,html.cs-reduced-motion .universe-no
 .work-access-confirm.hidden{display:none!important}
 .work-resolve-retry{margin-left:8px;vertical-align:middle}
 .compact-button{padding:6px 10px;min-height:32px;font-size:.75rem}
+
+/* Next Work: single-column phone-first cards, no truncated source identities. */
+.stone-todo-board{display:grid;grid-template-columns:minmax(0,1fr);gap:12px}
+.stone-todo{min-width:0;margin:0}
+.stone-todo .section-heading{align-items:flex-start;flex-wrap:wrap}
+.stone-todo h3{margin:0;overflow-wrap:anywhere}
+.stone-todo-source{margin:16px 0;font-size:.8rem}
+.stone-todo-source dt{color:var(--muted);margin-top:8px}
+.stone-todo-source dd{margin:4px 0;font-family:monospace;overflow-wrap:anywhere}
+.stone-todo-actor,.stone-todo-destination{overflow-wrap:anywhere}
+.stone-todo-copy{width:100%;min-height:48px}
+.stone-todo-preview{margin-top:12px}
+.stone-todo-preview summary{cursor:pointer;min-height:44px;display:flex;align-items:center}
+.stone-todo-prompt{width:100%;box-sizing:border-box;font-size:16px;white-space:pre-wrap;overflow-wrap:anywhere}
+.stone-todo-feedback{min-height:1.5em}
