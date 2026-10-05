@@ -1,6 +1,7 @@
 import { initInvitePanel } from './invite.js';
 import { initCodeSessionPanel } from './code-session.js';
 import { initWorkGuidePanel } from './work-guide-panel.js';
+import { initStoneTodos, NEXT_WORK_DESTINATIONS } from './stone-todos.js';
 import {
   RESPONSE_LOD_MAX,
   RESPONSE_LOD_MIN,
@@ -256,6 +257,7 @@ const state = {
 const PRIMARY_BY_PANEL = {
   chat: 'chat',
   code: 'work',
+  'next-work': 'work',
   universe: 'universe',
   inbox: 'inbox',
   handoff: 'inbox',
@@ -281,7 +283,7 @@ const e = {
   runtimeUrl: $('runtimeUrl'), actorId: $('actorId'), healthButton: $('healthButton'), healthDot: $('healthDot'), healthText: $('healthText'),
   contextScopeBtn: $('contextScopeBtn'), contextActorBtn: $('contextActorBtn'), contextChatBtn: $('contextChatBtn'), contextCodeBtn: $('contextCodeBtn'), contextRuntimeBtn: $('contextRuntimeBtn'),
   contextScopeLabel: $('contextScopeLabel'), contextActorLabel: $('contextActorLabel'), contextChatLabel: $('contextChatLabel'), contextCodeLabel: $('contextCodeLabel'),
-  inboxSubnav: $('inboxSubnav'), moreSubnav: $('moreSubnav'),
+  workSubnav: $('workSubnav'), inboxSubnav: $('inboxSubnav'), moreSubnav: $('moreSubnav'),
   inboxGroupThreads: $('inboxGroupThreads'),
   scopeSheet: $('scopeSheet'), runtimeSheet: $('runtimeSheet'), chatConfigSheet: $('chatConfigSheet'), evidenceDrawer: $('evidenceDrawer'),
   shareSheet: $('shareSheet'), shareSheetTitle: $('shareSheetTitle'), shareSheetBlurb: $('shareSheetBlurb'),
@@ -3646,9 +3648,10 @@ function panel(name) {
     else t.removeAttribute('aria-current');
   });
   document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === `panel-${panelName}`));
+  if (e.workSubnav) e.workSubnav.classList.toggle('hidden', primary !== 'work');
   if (e.inboxSubnav) e.inboxSubnav.classList.toggle('hidden', primary !== 'inbox');
   if (e.moreSubnav) e.moreSubnav.classList.toggle('hidden', primary !== 'more');
-  document.querySelectorAll('#inboxSubnav .subnav-item, #moreSubnav .subnav-item').forEach(t => {
+  document.querySelectorAll('#workSubnav .subnav-item, #inboxSubnav .subnav-item, #moreSubnav .subnav-item').forEach(t => {
     const active = t.dataset.panel === panelName;
     t.classList.toggle('active', active);
     t.setAttribute('aria-selected', active ? 'true' : 'false');
@@ -4134,6 +4137,15 @@ workGuideApi = initWorkGuidePanel({
   panel,
   invitePrefill: (opts) => inviteApi?.prefillForCodeSession?.(opts) || inviteApi?.prefill?.(opts)
 });
+
+// Offline Next Work is independent of runtime health and receives no MCP transport.
+for (const [actor, note] of Object.entries(NEXT_WORK_DESTINATIONS)) {
+  const row = document.createElement('p');
+  row.className = 'small stone-todo-destination';
+  row.textContent = `${actor} — ${note}`;
+  $('nextWorkDestinations').append(row);
+}
+void initStoneTodos();
 
 refreshIntentControls();
 setEventResult(subscribeHonesty());
