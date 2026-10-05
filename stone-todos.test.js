@@ -140,3 +140,17 @@ test('Next Work is reachable through Work subnav with phone-safe styles', () => 
   assert.match(css, /stone-todo-copy\{[^}]*min-height:48px/);
   assert.match(css, /stone-todo-source dd\{[^}]*overflow-wrap:anywhere/);
 });
+
+test('standalone page renders the same read-only board without console/runtime bootstrap', () => {
+  const html = readFileSync(new URL('./next-work.html', import.meta.url), 'utf8');
+  const entry = readFileSync(new URL('./next-work-page.js', import.meta.url), 'utf8');
+  assert.match(html, /SAMPLE ONLY/);
+  assert.match(html, /viewport-fit=cover/);
+  assert.match(html, /id="nextWorkBoard"/);
+  assert.match(html, /id="nextWorkDestinations"/);
+  assert.match(html, /src="\.\/next-work-page.js"/);
+  assert.doesNotMatch(html, /src="\.\/app.js"/);
+  assert.match(entry, /void initStoneTodos\(\)/);
+  assert.deepEqual([...entry.matchAll(/^import .* from '([^']+)'/gm)].map(m => m[1]), ['./stone-todos.js']);
+  assert.doesNotMatch(entry, /\b(?:fetch|XMLHttpRequest|WebSocket|mcpCall|operatorCall|send_message|commit_v2|set_head|set_path_head)\s*\(/);
+});
