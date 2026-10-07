@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#101319">
+  <title>Hop card · Console snapshot</title>
+  <link rel="stylesheet" href="./styles.css">
+  <style>
+    .hop-page{max-width:640px;margin:0 auto;padding:20px 16px calc(28px + env(safe-area-inset-bottom));color:#e7ecf2}
+    .hop-page h1{font-size:1.6rem;margin:6px 0}
+    .banner{font-size:.75rem;letter-spacing:.08em;font-weight:800;color:#7c98ff}
+    .card{background:#18202a;border:1px solid #2b3644;border-radius:14px;padding:14px;margin:12px 0}
+    .rail{display:flex;gap:8px;overflow-x:auto;scroll-snap-type:x mandatory;padding-bottom:4px}
+    .step{min-width:86%;scroll-snap-align:center;border:1px solid #2b3644;border-radius:12px;padding:12px;background:#101319}
+    .step.current{border-color:#7c98ff}
+    .kicker{color:#93a0b1;font-size:.8rem}
+    .pointer{font-family:ui-monospace,monospace;font-size:.9rem;white-space:pre-wrap}
+    .row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+    button,a.btn{font:inherit;min-height:44px;border-radius:10px;border:1px solid #2b3644;background:#18202a;color:#e7ecf2;padding:0 12px;text-decoration:none;display:inline-flex;align-items:center}
+    button.primary{background:#7c98ff;color:#101319;border-color:#7c98ff;font-weight:700}
+    .muted{color:#93a0b1;font-size:.9rem}
+  </style>
+</head>
+<body>
+  <main class="hop-page">
+    <div class="banner">CONSOLE CARD · SNAPSHOT · NO HEAD WRITES</div>
+    <h1>Hop card</h1>
+    <p class="muted">Before, now, and after for the existing hop threads. Stones are cited. This page does not call the runtime.</p>
+    <section class="card">
+      <div class="rail" id="rail" aria-label="Step carousel"></div>
+      <div class="row">
+        <button class="primary" id="copy" type="button">Copy pointer</button>
+        <a class="btn" id="console" href="./index.html#inbox">Open Console inbox</a>
+      </div>
+      <p class="muted" id="status" role="status"></p>
+    </section>
+    <section class="card">
+      <div class="kicker">Next app</div>
+      <label class="muted"><input id="prefill" type="checkbox"> Prefill the pointer in the link</label>
+      <div class="row" id="hops"></div>
+    </section>
+  </main>
+  <script type="module">
+    import { HOP_CARD_SNAPSHOT, hopUrl } from "./hop-card.js";
+    const rail = document.getElementById("rail");
+    const status = document.getElementById("status");
+    let current = 1;
+    function render() {
+      rail.innerHTML = "";
+      HOP_CARD_SNAPSHOT.steps.forEach((step, i) => {
+        const el = document.createElement("article");
+        el.className = "step" + (i === current ? " current" : "");
+        el.innerHTML = '<div class="kicker"></div><h2></h2><p class="pointer"></p><p class="muted"></p>';
+        el.querySelector(".kicker").textContent = step.label;
+        el.querySelector("h2").textContent = step.title;
+        el.querySelector(".pointer").textContent = step.pointer;
+        el.querySelector(".muted").textContent = step.stone ? "stone " + step.stone.slice(0, 8) : "no new stone";
+        el.addEventListener("click", () => { current = i; render(); });
+        rail.append(el);
+      });
+      const hops = document.getElementById("hops");
+      hops.innerHTML = "";
+      const pointer = HOP_CARD_SNAPSHOT.steps[current].pointer;
+      const prefill = document.getElementById("prefill").checked;
+      for (const hop of HOP_CARD_SNAPSHOT.hops) {
+        const a = document.createElement("a");
+        a.className = "btn";
+        a.textContent = hop.name;
+        a.href = hopUrl(hop, pointer, prefill);
+        a.rel = "noopener";
+        hops.append(a);
+      }
+    }
+    document.getElementById("copy").addEventListener("click", async () => {
+      const text = HOP_CARD_SNAPSHOT.steps[current].pointer;
+      try { await navigator.clipboard.writeText(text); status.textContent = "Copied."; }
+      catch { status.textContent = text; }
+    });
+    document.getElementById("prefill").addEventListener("change", render);
+    render();
+  </script>
+</body>
+</html>
