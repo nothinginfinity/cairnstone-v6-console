@@ -6,6 +6,13 @@
  */
 
 import {
+  DEFAULT_OPERATOR_ACTOR,
+  DEFAULT_OPERATOR_WORKSPACE,
+  bindCodeSessionToConversation,
+  claimWorkspaceInvite,
+  getMyWorkspaceAccess
+} from './operator-bootstrap.js';
+import {
   WORK_ACTION_CHOICES,
   accessGrantConfirmPrompt,
   accessTargetChoicesFromDiscovery,
@@ -66,7 +73,9 @@ export function initWorkGuidePanel(api = {}) {
     busy = () => {},
     actorId = () => '',
     panel = () => {},
-    invitePrefill = null
+    invitePrefill = null,
+    operatorCall = null,
+    mintWorkspaceInvite = null
   } = api;
 
   const els = {
@@ -103,11 +112,22 @@ export function initWorkGuidePanel(api = {}) {
     accessConfirm: document.getElementById('workAccessConfirm'),
     accessConfirmText: document.getElementById('workAccessConfirmText'),
     accessConfirmCheck: document.getElementById('workAccessConfirmCheck'),
+    accessConfirmCheckRow: document.getElementById('workAccessConfirmCheckRow'),
+    approveInviteBtn: document.getElementById('workApproveInviteBtn'),
+    inviteStatus: document.getElementById('workInviteStatus'),
+    genericIntentWrap: document.getElementById('workGenericIntentWrap'),
+    stageIntent: document.getElementById('workStageIntent'),
     codeLoad: document.getElementById('codeLoad'),
     codeSurface: document.getElementById('codeSurface'),
     advancedShell: document.getElementById('workAdvancedShell'),
     workspaceId: document.getElementById('workWorkspaceId'),
     workspaceCap: document.getElementById('codeWorkspaceCap'),
+    getMyAccessBtn: document.getElementById('workGetMyAccessBtn'),
+    getMyAccessAdvancedBtn: document.getElementById('workGetMyAccessAdvancedBtn'),
+    claimInviteBtn: document.getElementById('workClaimInviteBtn'),
+    claimInviteWrap: document.getElementById('workClaimInviteWrap'),
+    claimInviteId: document.getElementById('workClaimInviteId'),
+    operatorPathStatus: document.getElementById('workOperatorPathStatus'),
     workspaceSave: document.getElementById('workWorkspaceSave'),
     addCollaborator: document.getElementById('workAddCollaboratorBtn'),
     collaboratorContinue: document.getElementById('workCollaboratorContinueBtn'),
@@ -145,6 +165,7 @@ export function initWorkGuidePanel(api = {}) {
   let accessTargetChoices = [];
   let conversationRefs = [];
   let accessConfirmAccepted = Boolean(answers.accessConfirmAccepted);
+  let inviteState = answers.inviteState || null;
   let lastMcpTimeout = false;
 
   const prefs0 = readWorkGuidePrefs();
@@ -182,7 +203,8 @@ export function initWorkGuidePanel(api = {}) {
       taskRunId: (els.dispatchTaskRunId?.value || '').trim(),
       codeSessionLoaded,
       advancedOpen: Boolean(els.advancedShell?.open),
-      extraActors: []
+      extraActors: [],
+      inviteState
     };
   }
 
@@ -209,9 +231,16 @@ export function initWorkGuidePanel(api = {}) {
     const lightweight = isLightweightResolveAction(answers.actionId);
     els.repoBranchPick?.classList.toggle('hidden', !(model.allAnswered && needsRepoBranchPick && !lightweight));
     els.accessTargetPick?.classList.toggle('hidden', !(model.allAnswered && needsAccessTargetPick && lightweight));
-    els.accessConfirm?.classList.toggle('hidden', !(model.allAnswered && answers.actionId === 'give_access' && answers.accessTargetId && !needsAccessTargetPick));
+    const workspaceInvite = model.nextAction?.workflow === 'workspace_invite';
+    els.accessConfirm?.classList.toggle('hidden', !(model.allAnswered && answers.actionId === 'give_access' && (answers.accessTargetId || workspaceInvite) && !needsAccessTargetPick));
     els.stageEvents?.classList.toggle('hidden', !model.visibility?.events);
     els.stageRetention?.classList.toggle('hidden', !model.visibility?.retention);
+    els.genericIntentWrap?.classList.toggle('hidden', workspaceInvite);
+    els.stageIntent?.classList.toggle('hidden', workspaceInvite);
+    els.codeSessionCard?.classList.toggle('hidden', workspaceInvite || !model.allAnswered);
+    els.approveInviteBtn?.classList.toggle('hidden', !workspaceInvite || needsAccessTargetPick);
+    if (els.accessConfirmCheckRow) els.accessConfirmCheckRow.classList.toggle('hidden', workspaceInvite);
+    if (workspaceInvite && els.confirmCard) els.confirmCard.classList.remove('hidden');
     els.guideBack?.classList.toggle('hidden', model.questionNumber <= 1 && !model.allAnswered);
 
     if (els.codeSessionStatus) {
@@ -424,8 +453,18 @@ export function initWorkGuidePanel(api = {}) {
       els.intentHumanCommit.disabled = !accessConfirmAccepted;
       if (!accessConfirmAccepted) els.intentHumanCommit.checked = false;
     }
-    if (els.intentCommitProposal) {
-      // app.js also gates on checkbox; keep disabled until confirm when visible
+    if (els.approveInviteBtn) {
+      els.approveInviteBtn.classList.toggle('hidden', !show || answers.accessTargetKind === 'code_session');
+      els.approveInviteBtn.disabled = Boolean(inviteState && (inviteState.status === 'waiting' || inviteState.status === 'claimed'));
+    }
+    if (els.inviteStatus) {
+      if (inviteState && inviteState.status === 'claimed') els.inviteStatus.textContent = (answers.whoDisplay || 'Principal') + ' has read access.';
+      else if (inviteState && inviteState.status === 'waiting') els.inviteStatus.textContent = 'Waiting for ' + (answers.whoDisplay || 'principal') + ' to claim.';
+      else els.inviteStatus.textContent = show && answers.accessTargetKind !== 'code_session'
+        ? 'Approve & send invite is Human Commit. Scopes: list + read only.'
+        : '';
+    }
+    if (answers.accessTargetKind === 'code_session' && els.intentCommitProposal) {
       els.intentCommitProposal.disabled = !accessConfirmAccepted;
     }
   }
@@ -791,6 +830,17 @@ export function initWorkGuidePanel(api = {}) {
       if (els.repoBranchNote) {
         els.repoBranchNote.textContent = `Bound ${parsed.full} @ ${branch} (pins resolved server-side; hash hidden).`;
       }
+      try {
+        await bindCodeSessionToConversation(mcpCall, {
+          actorId: actor,
+          workspaceId,
+          codeSessionId: createdId,
+          conversationId: answers.conversationId || '',
+          selectedRepo: parsed.full
+        });
+      } catch (bindErr) {
+        toast(bindErr.message || 'Conversation Session bind failed — Code Session still created');
+      }
       toast('Code Session bound from repo + branch');
       await runAutoResolve({ scrollToCode: true });
       if (!consoleViewKickoffDone && workspaceCapability) {
@@ -934,6 +984,16 @@ export function initWorkGuidePanel(api = {}) {
         || codeSessionId;
       applyBoundSession(createdId, { fromDiscovery: false });
       needsRepoBranchPick = false;
+      try {
+        await bindCodeSessionToConversation(mcpCall, {
+          actorId: actor,
+          workspaceId,
+          codeSessionId: createdId,
+          conversationId: answers.conversationId || ''
+        });
+      } catch (bindErr) {
+        toast(bindErr.message || 'Conversation Session bind failed — Code Session still created');
+      }
       toast('Code Session created (Advanced)');
       await refreshDiscovery();
       if (questionnaireModel(gatherInput()).allAnswered) await runAutoResolve({ scrollToCode: true });
@@ -945,6 +1005,54 @@ export function initWorkGuidePanel(api = {}) {
     }
   }
 
+  async function approveWorkspaceInvite() {
+    const principal = String(answers.whoMailboxId || '').trim();
+    const workspaceId = String(
+      answers.accessTargetKind === 'workspace'
+        ? (answers.accessTargetValue || els.workspaceId?.value || '')
+        : (els.workspaceId?.value || answers.accessTargetValue || '')
+    ).trim();
+    if (!principal) { toast('Pick who should receive access first'); return; }
+    if (!workspaceId) { toast('No workspace bound'); return; }
+    if (typeof mintWorkspaceInvite !== 'function') { toast('Invite mint is not wired'); return; }
+    busy(els.approveInviteBtn || els.guidePrimaryCta, true, 'Sending invite…');
+    try {
+      const row = await mintWorkspaceInvite({ workspaceId, principalActorId: principal, scopes: ['ls', 'read'], membershipRole: 'drafter' });
+      inviteState = { status: 'waiting', inviteId: row && row.invite_id, principal, workspaceId, noticeSent: Boolean(row && row.notice_sent) };
+      answers = Object.assign({}, answers, { inviteState });
+      persistAnswers();
+      toast('Invite sent — waiting for claim');
+      renderGuide();
+    } catch (err) {
+      toast(err.message || 'Invite mint failed');
+    } finally {
+      busy(els.approveInviteBtn || els.guidePrimaryCta, false, 'Approve & send invite');
+    }
+  }
+
+  async function refreshInviteStatus() {
+    const inviteId = inviteState && inviteState.inviteId;
+    if (!inviteId || typeof operatorCall !== 'function') {
+      toast('Waiting for claim');
+      return;
+    }
+    try {
+      const r = await operatorCall('/v1/workspace-invites/' + encodeURIComponent(inviteId));
+      const state = String((r && r.invite && r.invite.state) || (r && r.state) || '').toLowerCase();
+      if (state === 'claimed') {
+        inviteState = Object.assign({}, inviteState, { status: 'claimed' });
+        answers = Object.assign({}, answers, { inviteState });
+        persistAnswers();
+        toast((answers.whoDisplay || 'Principal') + ' has read access');
+      } else {
+        toast('Invite still ' + (state || 'pending'));
+      }
+      renderGuide();
+    } catch (err) {
+      toast(err.message || 'Invite refresh failed');
+    }
+  }
+
   function runPrimaryCta() {
     const action = els.guidePrimaryCta?.dataset.action
       || questionnaireModel(gatherInput()).primaryCta.action;
@@ -953,6 +1061,15 @@ export function initWorkGuidePanel(api = {}) {
       case 'answer_who':
       case 'answer_action':
         return answerCurrentAndAdvance();
+      case 'approve_workspace_invite':
+        return void approveWorkspaceInvite();
+      case 'refresh_invite':
+        return void refreshInviteStatus();
+      case 'focus_access_target':
+        els.accessTargetPick?.classList.remove('hidden');
+        return;
+      case 'noop_invite_done':
+        return;
       case 'run_auto_resolve':
         return void runAutoResolve();
       case 'noop_resolving':
@@ -1079,6 +1196,80 @@ export function initWorkGuidePanel(api = {}) {
     if (!btn) return;
     selectAction(btn.dataset.actionId, btn.dataset.label);
   });
+  function setOperatorPathStatus(text) {
+    if (els.operatorPathStatus) els.operatorPathStatus.textContent = text || '';
+  }
+
+  function persistWorkspaceCapability(workspaceId, workspaceCapability) {
+    if (els.workspaceId && workspaceId) els.workspaceId.value = workspaceId;
+    if (els.workspaceCap && workspaceCapability) els.workspaceCap.value = workspaceCapability;
+    try {
+      if (workspaceCapability) sessionStorage.setItem('cs.workspaceCapability', workspaceCapability);
+      if (workspaceId) sessionStorage.setItem('cs.workspaceId', workspaceId);
+    } catch {}
+  }
+
+  async function runGetMyWorkspaceAccess() {
+    const actor = (typeof actorId === 'function' ? actorId() : actorId) || DEFAULT_OPERATOR_ACTOR;
+    const workspaceId = (els.workspaceId?.value || DEFAULT_OPERATOR_WORKSPACE).trim() || DEFAULT_OPERATOR_WORKSPACE;
+    setOperatorPathStatus('Getting workspace access…');
+    busy(els.getMyAccessBtn || els.getMyAccessAdvancedBtn, true, 'Getting access…');
+    try {
+      const r = await getMyWorkspaceAccess({ operatorCall, mcpCall, actorId: actor, workspaceId });
+      persistWorkspaceCapability(r.workspaceId, r.workspaceCapability);
+      setOperatorPathStatus('Workspace access ready for ' + actor + ' (list + read). Capability stays in this browser session.');
+      toast('Workspace access ready');
+      renderGuide();
+    } catch (err) {
+      setOperatorPathStatus(err.message || 'Get my workspace access failed');
+      toast(err.message || 'Get my workspace access failed');
+    } finally {
+      busy(els.getMyAccessBtn || els.getMyAccessAdvancedBtn, false, 'Get my workspace access');
+    }
+  }
+
+  async function runClaimInvite() {
+    els.claimInviteWrap?.classList.remove('hidden');
+    const inviteId = String(els.claimInviteId?.value || inviteState?.inviteId || '').trim();
+    if (!inviteId) {
+      setOperatorPathStatus('Enter the invite id, then tap Claim invite again.');
+      return;
+    }
+    const actor = (typeof actorId === 'function' ? actorId() : actorId) || DEFAULT_OPERATOR_ACTOR;
+    busy(els.claimInviteBtn, true, 'Claiming…');
+    try {
+      let mailbox = '';
+      try { mailbox = sessionStorage.getItem('cs.mailboxCapability') || ''; } catch {}
+      if (!mailbox && typeof operatorCall === 'function') {
+        const issued = await operatorCall('/v1/mailbox-capabilities', {
+          method: 'POST',
+          body: { principal_actor_id: actor, scopes: ['mail.read:self'], ttl_seconds: 900 }
+        });
+        mailbox = issued && issued.mailbox_capability;
+        if (mailbox) {
+          try { sessionStorage.setItem('cs.mailboxCapability', mailbox); } catch {}
+        }
+      }
+      const r = await claimWorkspaceInvite(mcpCall, { inviteId, actorId: actor, mailboxCapability: mailbox });
+      persistWorkspaceCapability(r.workspaceId || els.workspaceId?.value, r.workspaceCapability);
+      inviteState = Object.assign({}, inviteState || {}, { status: 'claimed', inviteId });
+      answers = Object.assign({}, answers, { inviteState });
+      persistAnswers();
+      setOperatorPathStatus('Invite claimed. Workspace capability is session-only.');
+      toast('Invite claimed');
+      renderGuide();
+    } catch (err) {
+      setOperatorPathStatus(err.message || 'Claim failed');
+      toast(err.message || 'Claim failed');
+    } finally {
+      busy(els.claimInviteBtn, false, 'Claim invite');
+    }
+  }
+
+  els.getMyAccessBtn?.addEventListener('click', () => void runGetMyWorkspaceAccess());
+  els.getMyAccessAdvancedBtn?.addEventListener('click', () => void runGetMyWorkspaceAccess());
+  els.claimInviteBtn?.addEventListener('click', () => void runClaimInvite());
+  els.approveInviteBtn?.addEventListener('click', () => void approveWorkspaceInvite());
   els.accessConfirmCheck?.addEventListener('change', () => {
     accessConfirmAccepted = Boolean(els.accessConfirmCheck.checked);
     answers = { ...answers, accessConfirmAccepted };

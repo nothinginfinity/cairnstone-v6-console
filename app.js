@@ -1,4 +1,4 @@
-import { initInvitePanel } from './invite.js';
+import { initInvitePanel, mintWorkspaceInviteAndNotify } from './invite.js';
 import { initCodeSessionPanel } from './code-session.js';
 import { initWorkGuidePanel } from './work-guide-panel.js';
 import { initStoneTodos, NEXT_WORK_DESTINATIONS } from './stone-todos.js';
@@ -3415,10 +3415,23 @@ function refreshIntentControls() {
 }
 
 async function routeConsoleIntent() {
+  const guideAnswers = (() => {
+    try { return JSON.parse(sessionStorage.getItem('cs.workGuide.questionnaireAnswers') || '{}'); }
+    catch { return {}; }
+  })();
+  const knownActors = [guideAnswers.whoMailboxId, (e.actorId?.value || '').trim()].filter(Boolean);
+  const objectRefs = [];
+  if (guideAnswers.accessTargetKind === 'code_session' && guideAnswers.accessTargetValue) {
+    objectRefs.push(guideAnswers.accessTargetValue);
+  }
   const prepared = buildIntentRouteArgs({
     text: e.intentText?.value || '',
     actor_id: (e.actorId?.value || 'console:jared').trim(),
-    code_session_id: (e.codeSessionId?.value || currentCodeSessionId() || '').trim()
+    code_session_id: (e.codeSessionId?.value || currentCodeSessionId() || '').trim(),
+    conversation_id: guideAnswers.conversationId || '',
+    focused_object_ref: guideAnswers.accessTargetValue || '',
+    object_refs: objectRefs,
+    known_actors: knownActors
   });
   if (!prepared.ok) {
     setIntentResult({ ok: false, error: 'invalid_route_args', errors: prepared.errors, accepted_state_authority: false });
@@ -4141,12 +4154,18 @@ initCodeSessionPanel({
 let workGuideApi = null;
 workGuideApi = initWorkGuidePanel({
   mcpCall,
+  operatorCall,
   toast,
   busy,
   esc,
   actorId: () => (e.actorId?.value || '').trim(),
   panel,
-  invitePrefill: (opts) => inviteApi?.prefillForCodeSession?.(opts) || inviteApi?.prefill?.(opts)
+  invitePrefill: (opts) => inviteApi?.prefillForCodeSession?.(opts) || inviteApi?.prefill?.(opts),
+  mintWorkspaceInvite: (spec) => mintWorkspaceInviteAndNotify({
+    operatorCall,
+    mcpCall,
+    actorId: () => (e.actorId?.value || 'console:jared').trim()
+  }, spec)
 });
 
 // Offline Next Work is independent of runtime health and receives no MCP transport.

@@ -12,6 +12,8 @@
  */
 
 import { SEED_ACTORS, displayNameForNamespace, parseMailboxId } from './actor-inbox-nav.js';
+import { oneNextActionModel } from './work-one-next-action.js';
+export { oneNextActionModel } from './work-one-next-action.js';
 
 /** Default Work — human questions only. */
 export const WORK_QUESTIONS = Object.freeze([
@@ -268,10 +270,24 @@ export function questionnaireModel(input = {}) {
   if (proposalCommitted && !dispatched) phase = 'await_dispatch';
   if (dispatched) phase = 'watch';
 
+  const nextAction = oneNextActionModel({
+    answers,
+    resolveComplete,
+    resolveBlocked,
+    inviteState: input.inviteState || null,
+    confirmTitle: accessGrantConfirmPrompt({
+      actionId: answers.actionId,
+      principalLabel: answers.whoDisplay || answers.whoMailboxId,
+      targetLabel: answers.accessTargetLabel,
+      permission: 'read'
+    })
+  });
+
   const primaryCta = (() => {
     if (!allAnswered && current) {
       return { label: current.cta, action: current.ctaAction };
     }
+    if (nextAction.primaryCta) return nextAction.primaryCta;
     if (phase === 'resolving') {
       return { label: 'Resolving…', action: 'noop_resolving' };
     }
@@ -318,21 +334,24 @@ export function questionnaireModel(input = {}) {
     actorOptions: humanActorOptions(input.extraActors),
     visibility: {
       questionnaire: true,
-      autoResolve: allAnswered,
-      confirm: allAnswered && (proposalReady || resolveComplete || resolveBlocked),
+      autoResolve: allAnswered && nextAction.showResolveRows,
+      confirm: allAnswered && nextAction.showGenericIntent,
       advanced: true,
       // Advanced ID panels stay available but default Work does not force them open.
       workspace: Boolean(input.advancedOpen),
       collaborator: Boolean(input.advancedOpen),
-      codeSession: Boolean(input.advancedOpen) || Boolean(autoResolve.code_session?.status === 'resolved'),
-      describe: allAnswered,
-      review: allAnswered,
-      dispatch: allAnswered && (proposalCommitted || dispatched || Boolean(input.taskRunId)),
-      events: allAnswered && (proposalReady || resolveComplete || Boolean(input.taskRunId)),
-      retention: allAnswered && (proposalReady || resolveComplete),
-      runtimeSurface: Boolean(input.codeSessionLoaded),
-      advancedIds: true
+      codeSession: Boolean(input.advancedOpen) || (nextAction.showCodeSession && Boolean(autoResolve.code_session?.status === 'resolved')),
+      describe: allAnswered && nextAction.showGenericIntent,
+      review: allAnswered && nextAction.showGenericIntent,
+      dispatch: allAnswered && nextAction.showGenericIntent && (proposalCommitted || dispatched || Boolean(input.taskRunId)),
+      events: allAnswered && nextAction.showEvents,
+      retention: allAnswered && nextAction.showRetention,
+      runtimeSurface: Boolean(input.codeSessionLoaded) && nextAction.showCodeSession,
+      advancedIds: true,
+      accessInvite: nextAction.workflow === 'workspace_invite',
+      genericIntent: nextAction.showGenericIntent
     },
+    nextAction,
     flags: {
       allAnswered,
       resolveComplete,

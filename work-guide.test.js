@@ -32,6 +32,7 @@ import {
   accessGrantConfirmPrompt,
   conversationRefsFromList,
   isLightweightResolveAction,
+  oneNextActionModel,
   requiredAutoResolveStepIds
 } from './work-guide.js';
 
@@ -499,5 +500,59 @@ describe('accessGrantConfirmPrompt Path A', () => {
     });
     assert.equal(text, 'Give Grok read access to Ops workspace?');
     assert.equal(accessGrantConfirmPrompt({ actionId: 'assign' }), '');
+  });
+});
+
+describe('oneNextActionModel — target kind selects workflow', () => {
+  it('workspace give_access hides generic intent and uses Approve & send invite', () => {
+    const next = oneNextActionModel({
+      answers: {
+        actionId: 'give_access',
+        whoDisplay: 'Claude',
+        whoMailboxId: 'claude:cairnstone-v6',
+        accessTargetKind: 'workspace',
+        accessTargetId: 'ws-current',
+        accessTargetLabel: 'This workspace'
+      },
+      resolveComplete: true
+    });
+    assert.equal(next.workflow, 'workspace_invite');
+    assert.equal(next.showGenericIntent, false);
+    assert.equal(next.showEvents, false);
+    assert.equal(next.primaryCta.action, 'approve_workspace_invite');
+    assert.deepEqual(next.card.scopes, ['ls', 'read']);
+  });
+
+  it('waiting invite replaces the card with claim wait state', () => {
+    const next = oneNextActionModel({
+      answers: { actionId: 'give_access', whoDisplay: 'Claude', accessTargetKind: 'workspace', accessTargetLabel: 'Ops' },
+      inviteState: { status: 'waiting', inviteId: 'inv-1' }
+    });
+    assert.equal(next.primaryCta.action, 'refresh_invite');
+  });
+
+  it('questionnaireModel hides Route/Events for workspace give_access', () => {
+    const m = questionnaireModel({
+      answers: {
+        what: 'Give Claude read access',
+        whoDisplay: 'Claude',
+        whoMailboxId: 'claude:cairnstone-v6',
+        actionId: 'give_access',
+        accessTargetKind: 'workspace',
+        accessTargetId: 'ws-1',
+        accessTargetLabel: 'This workspace'
+      },
+      autoResolve: {
+        workspace: { status: 'resolved' },
+        access_readiness: { status: 'resolved' },
+        ids: { status: 'resolved' },
+        code_session: { status: 'skipped' },
+        source_repos_base_commits: { status: 'skipped' },
+        task_run_events: { status: 'skipped' }
+      }
+    });
+    assert.equal(m.nextAction.workflow, 'workspace_invite');
+    assert.equal(m.visibility.genericIntent, false);
+    assert.equal(m.primaryCta.action, 'approve_workspace_invite');
   });
 });
